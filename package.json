@@ -1,0 +1,237 @@
+{
+  "name": "git-reflow",
+  "displayName": "Git QuickPick",
+  "description": "%extension.description%",
+  "version": "0.9.0",
+  "publisher": "ddakker",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "extensionKind": ["workspace"],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gitQuickPickExplorer",
+          "title": "Git QuickPick",
+          "icon": "git-quickpick-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "gitQuickPickExplorer": [
+        {
+          "id": "gitQuickPickCommitInput",
+          "name": "%view.commitInput%",
+          "type": "webview",
+          "initialSize": 1
+        },
+        {
+          "id": "gitQuickPickView",
+          "name": "%view.workspace%",
+          "contextualTitle": "Git QuickPick"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "gitReflow.rebasemergeLocal", "title": "%command.rebasemergeLocal%", "icon": "$(git-merge)" },
+      { "command": "gitReflow.rebasemergeRemote", "title": "%command.rebasemergeRemote%", "icon": "$(cloud-download)" },
+      { "command": "gitReflow.pullBranch", "title": "%command.pullBranch%", "icon": "$(arrow-down)" },
+      { "command": "gitReflow.push", "title": "%command.push%", "icon": "$(cloud-upload)" },
+      { "command": "gitReflow.commit", "title": "%command.commit%", "icon": "$(check)" },
+      { "command": "gitReflow.reset", "title": "%command.reset%", "icon": "$(discard)" },
+      { "command": "gitReflow.cherryPick", "title": "%command.cherryPick%", "icon": "$(record)" },
+      { "command": "gitReflow.history", "title": "%command.history%", "icon": "$(history)" },
+      { "command": "gitReflow.refreshView", "title": "%command.refresh%", "icon": "$(refresh)" },
+      { "command": "gitReflow.execPush", "title": "%command.execPush%", "icon": "$(cloud-upload)" },
+      { "command": "gitReflow.execForcePush", "title": "%command.execForcePush%", "icon": "$(warning)" },
+      { "command": "gitReflow.execPull", "title": "%command.execPull%", "icon": "$(arrow-down)" },
+      { "command": "gitReflow.execRebase", "title": "%command.execRebase%", "icon": "$(git-merge)" },
+      { "command": "gitReflow.execMerge", "title": "%command.execMerge%", "icon": "$(source-control)" },
+      { "command": "gitReflow.execCherryPick", "title": "%command.execCherryPick%", "icon": "$(record)" },
+      { "command": "gitReflow.execSoftReset", "title": "%command.execSoftReset%", "icon": "$(history)" },
+      { "command": "gitReflow.execHardReset", "title": "%command.execHardReset%", "icon": "$(warning)" },
+      { "command": "gitReflow.copyHash", "title": "%command.copyHash%", "icon": "$(clippy)" },
+      { "command": "gitReflow.viewDiff", "title": "%command.viewDiff%", "icon": "$(diff)" },
+      { "command": "gitReflow.resetToHere", "title": "%command.resetToHere%", "icon": "$(discard)" },
+      { "command": "gitReflow.execSwitch", "title": "%command.execSwitch%", "icon": "$(arrow-swap)" },
+      { "command": "gitReflow.execCommit", "title": "%command.execCommit%", "icon": "$(play)" },
+      { "command": "gitReflow.toggleFileView", "title": "%command.toggleFileView%", "icon": "$(list-tree)" },
+      { "command": "gitReflow.stageFile", "title": "%command.stageFile%", "icon": "$(add)" },
+      { "command": "gitReflow.rollbackFile", "title": "%command.rollbackFile%", "icon": "$(reply)" },
+      { "command": "gitReflow.deleteFile", "title": "%command.deleteFile%", "icon": "$(trash)" },
+      { "command": "gitReflow.toggleSelectAll", "title": "%command.toggleSelectAll%", "icon": "$(checklist)" },
+      { "command": "gitReflow.createBranch", "title": "%command.createBranch%", "icon": "$(add)" },
+      { "command": "gitReflow.execBranchPull", "title": "%command.execBranchPull%", "icon": "$(cloud-download)" },
+      { "command": "gitReflow.execForceBranchPull", "title": "%command.execForceBranchPull%", "icon": "$(warning)" },
+      { "command": "gitReflow.execInteractiveRebase", "title": "%command.execInteractiveRebase%", "icon": "$(edit)" }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "gitReflow.toggleSelectAll",
+          "when": "view == gitQuickPickCommitInput && gitReflow.hasChanges",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitReflow.toggleFileView",
+          "when": "view == gitQuickPickCommitInput && gitReflow.hasChanges",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gitReflow.execCommit",
+          "when": "view == gitQuickPickCommitInput && gitReflow.hasCheckedFiles",
+          "group": "navigation@3"
+        },
+        {
+          "command": "gitReflow.execPush",
+          "when": "view == gitQuickPickCommitInput",
+          "group": "navigation@4"
+        },
+        {
+          "command": "gitReflow.execPull",
+          "when": "view == gitQuickPickCommitInput",
+          "group": "navigation@5"
+        },
+        {
+          "command": "gitReflow.refreshView",
+          "when": "view == gitQuickPickCommitInput",
+          "group": "navigation@6"
+        },
+        {
+          "command": "gitReflow.execForcePush",
+          "when": "view == gitQuickPickCommitInput",
+          "group": "1_push"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "gitReflow.stageFile",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitReflow.deleteFile",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
+          "group": "inline@2"
+        },
+        {
+          "command": "gitReflow.rollbackFile",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitReflow.deleteFile",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
+          "group": "inline@2"
+        },
+        {
+          "command": "gitReflow.rollbackFile",
+          "when": "view == gitQuickPickView && viewItem == fileDeleted",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitReflow.deleteFile",
+          "when": "view == gitQuickPickView && viewItem == fileOther",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitReflow.copyHash",
+          "when": "view == gitQuickPickView && viewItem == historyCommit",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "gitReflow.execInteractiveRebase",
+          "when": "view == gitQuickPickView && viewItem == historyCommit",
+          "group": "1_actions@3"
+        },
+        {
+          "command": "gitReflow.execSoftReset",
+          "when": "view == gitQuickPickView && viewItem == historyCommit",
+          "group": "2_reset@1"
+        },
+        {
+          "command": "gitReflow.execHardReset",
+          "when": "view == gitQuickPickView && viewItem == historyCommit",
+          "group": "2_reset@2"
+        },
+        {
+          "command": "gitReflow.execSwitch",
+          "when": "view == gitQuickPickView && viewItem == localBranch",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "gitReflow.execBranchPull",
+          "when": "view == gitQuickPickView && viewItem == localBranch",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "gitReflow.execForceBranchPull",
+          "when": "view == gitQuickPickView && viewItem == localBranch",
+          "group": "1_actions@3"
+        },
+        {
+          "command": "gitReflow.execRebase",
+          "when": "view == gitQuickPickView && viewItem == localBranch",
+          "group": "2_merge@1"
+        },
+        {
+          "command": "gitReflow.execMerge",
+          "when": "view == gitQuickPickView && viewItem == localBranch",
+          "group": "2_merge@2"
+        },
+        {
+          "command": "gitReflow.execSwitch",
+          "when": "view == gitQuickPickView && viewItem == remoteBranch",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "gitReflow.execRebase",
+          "when": "view == gitQuickPickView && viewItem == remoteBranch",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "gitReflow.execMerge",
+          "when": "view == gitQuickPickView && viewItem == remoteBranch",
+          "group": "1_actions@3"
+        },
+        {
+          "command": "gitReflow.copyHash",
+          "when": "view == gitQuickPickView && viewItem == branchHistoryCommit",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "gitReflow.execCherryPick",
+          "when": "view == gitQuickPickView && viewItem == branchHistoryCommit",
+          "group": "2_actions@1"
+        },
+        {
+          "command": "gitReflow.execBranchPull",
+          "when": "view == gitQuickPickView && viewItem == localBranchCurrent",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "gitReflow.execForceBranchPull",
+          "when": "view == gitQuickPickView && viewItem == localBranchCurrent",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "gitReflow.createBranch",
+          "when": "view == gitQuickPickView && viewItem == localBranchSection",
+          "group": "1_actions@1"
+        }
+      ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ddakker/vscode-git-quickpick-extension"
+  },
+  "license": "Apache-2.0",
+  "scripts": {
+    "vscode:prepublish": "node -e \"require('fs').writeFileSync('build-info.json', JSON.stringify({ buildTime: new Date().toISOString() }))\""
+  }
+}

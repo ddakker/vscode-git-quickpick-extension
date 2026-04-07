@@ -1,0 +1,7 @@
+node_modules/
+*.vsix
+build-info.json
+.vscode/
+.claude/
+.bkit/
+plan/

@@ -1,0 +1,9 @@
+.vscode/
+.claude/
+.bkit/
+*.vsix
+package.sh
+.gitignore
+plan/
+CLAUDE.md
+ggg*.png
