@@ -34,5 +34,7 @@
   "command.deleteFile": "Delete File",
   "command.toggleSelectAll": "Select All / Deselect All",
   "command.createBranch": "Create Branch",
-  "command.execInteractiveRebase": "Squash Commits from Here"
+  "command.execInteractiveRebase": "Squash Commits from Here",
+  "command.execAmendMessage": "Edit Commit Message",
+  "command.jumpToSource": "Jump to Source"
 }

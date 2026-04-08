@@ -34,5 +34,7 @@
   "command.deleteFile": "파일 삭제",
   "command.toggleSelectAll": "전체 선택/해제",
   "command.createBranch": "브랜치 생성",
-  "command.execInteractiveRebase": "여기서부터 커밋 합치기"
+  "command.execInteractiveRebase": "여기서부터 커밋 합치기",
+  "command.execAmendMessage": "커밋 메시지 수정",
+  "command.jumpToSource": "소스로 이동"
 }

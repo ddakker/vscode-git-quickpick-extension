@@ -270,7 +270,9 @@ async function hasInProgressOperation(cwd) {
 }
 
 async function getChangedFiles(cwd) {
-  const { stdout } = await execGitSilent(['status', '--porcelain', '--no-renames'], cwd);
+  const { stdout } = await execGitSilent(
+    ['status', '--porcelain', '--no-renames', '-uall'], cwd
+  );
   if (!stdout.trim()) return [];
 
   // git check-ignore로 무시 대상 필터링
@@ -400,9 +402,117 @@ async function showCommitPicker(cwd, options = {}) {
   return selected ? { hash: selected.hash, message: selected.message } : undefined;
 }
 
-// ─── Commit Message WebviewView ─────────────────────────────────────
+// ─── Inline Git Blame Decoration ────────────────────────────────────
 
-// ─── Commit Message WebviewView ─────────────────────────────────────
+const blameDecorationType = vscode.window.createTextEditorDecorationType({
+  after: {
+    color: new vscode.ThemeColor('editorCodeLens.foreground'),
+    fontStyle: 'italic',
+    margin: '0 0 0 3em',
+  },
+  rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
+});
+
+let blameTimeout = null;
+let lastBlameKey = '';
+
+async function updateInlineBlame(editor) {
+  if (!editor || editor.document.uri.scheme !== 'file') {
+    return;
+  }
+
+  const filePath = editor.document.uri.fsPath;
+  const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+  if (!folder) return;
+
+  const cwd = folder.uri.fsPath;
+  const line = editor.selection.active.line + 1; // git blame은 1-based
+
+  const blameKey = `${filePath}:${line}`;
+  if (blameKey === lastBlameKey) return;
+  lastBlameKey = blameKey;
+
+  try {
+    const relativePath = path.relative(cwd, filePath);
+    const { stdout } = await execGitSilent(
+      ['blame', '-L', `${line},${line}`, '--porcelain', '--', relativePath],
+      cwd,
+      { timeout: 5000 }
+    );
+
+    if (!stdout.trim()) {
+      editor.setDecorations(blameDecorationType, []);
+      return;
+    }
+
+    const lines = stdout.split('\n');
+    // porcelain 첫 줄: <hash> <orig-line> <final-line> <num-lines>
+    const hash = lines[0].split(' ')[0];
+
+    // 커밋되지 않은 변경
+    if (/^0+$/.test(hash)) {
+      editor.setDecorations(blameDecorationType, []);
+      return;
+    }
+
+    let author = '';
+    let authorTime = '';
+    let summary = '';
+    for (const l of lines) {
+      if (l.startsWith('author ')) author = l.substring(7);
+      else if (l.startsWith('author-time ')) authorTime = l.substring(12);
+      else if (l.startsWith('summary ')) summary = l.substring(8);
+    }
+
+    const dateStr = authorTime
+      ? formatRelativeDate(parseInt(authorTime, 10))
+      : '';
+    const shortHash = hash.substring(0, 7);
+    const text = `    ${author}, ${dateStr} • ${summary} (${shortHash})`;
+
+    const lineIdx = line - 1;
+    const lineText = editor.document.lineAt(lineIdx);
+    const range = new vscode.Range(lineIdx, lineText.text.length, lineIdx, lineText.text.length);
+
+    editor.setDecorations(blameDecorationType, [{
+      range,
+      renderOptions: {
+        after: { contentText: text },
+      },
+    }]);
+  } catch {
+    editor.setDecorations(blameDecorationType, []);
+  }
+}
+
+function formatRelativeDate(timestamp) {
+  const now = Math.floor(Date.now() / 1000);
+  const diff = now - timestamp;
+  if (diff < 60) return isKo ? '방금 전' : 'just now';
+  if (diff < 3600) {
+    const m = Math.floor(diff / 60);
+    return isKo ? `${m}분 전` : `${m} min ago`;
+  }
+  if (diff < 86400) {
+    const h = Math.floor(diff / 3600);
+    return isKo ? `${h}시간 전` : `${h} hours ago`;
+  }
+  if (diff < 2592000) {
+    const d = Math.floor(diff / 86400);
+    return isKo ? `${d}일 전` : `${d} days ago`;
+  }
+  if (diff < 31536000) {
+    const mo = Math.floor(diff / 2592000);
+    return isKo ? `${mo}개월 전` : `${mo} months ago`;
+  }
+  const y = Math.floor(diff / 31536000);
+  return isKo ? `${y}년 전` : `${y} years ago`;
+}
+
+function scheduleBlameUpdate(editor) {
+  if (blameTimeout) clearTimeout(blameTimeout);
+  blameTimeout = setTimeout(() => updateInlineBlame(editor), 150);
+}
 
 // ─── Commit Input WebviewView ───────────────────────────────────────
 
@@ -413,6 +523,48 @@ class CommitInputViewProvider {
     this._globalState = globalState;
     this._onDidCommit = new vscode.EventEmitter();
     this.onDidCommit = this._onDidCommit.event;
+    this._pendingResolve = null; // squash 등 외부에서 메시지 대기 시 사용
+  }
+
+  /**
+   * 사이드바 메시지 입력창에 텍스트를 세팅하고, 커밋 버튼을 누를 때까지 대기.
+   * 커밋 버튼 누르면 입력된 메시지로 resolve, 취소(ESC 등)되면 undefined.
+   * @param {string} defaultMsg 기본 메시지
+   * @param {string} [buttonLabel] 커밋 버튼에 표시할 임시 라벨
+   */
+  waitForCommit(defaultMsg, buttonLabel) {
+    // 기존 대기 취소
+    if (this._pendingResolve) {
+      this._pendingResolve(undefined);
+      this._pendingResolve = null;
+    }
+    this.setMessage(defaultMsg);
+    // 버튼 라벨 변경
+    if (buttonLabel && this._view) {
+      this._view.webview.postMessage({ type: 'setButtonLabel', value: buttonLabel });
+    }
+    // 사이드바 패널 포커스
+    vscode.commands.executeCommand('gitQuickPickCommitInput.focus');
+    const restoreLabel = () => {
+      if (this._view) {
+        const original = isKo ? '\u2713 커밋' : '\u2713 Commit';
+        this._view.webview.postMessage({ type: 'setButtonLabel', value: original });
+      }
+      this.clearMessage();
+    };
+    return new Promise((resolve) => {
+      this._pendingResolve = (value) => {
+        restoreLabel();
+        resolve(value);
+      };
+    });
+  }
+
+  cancelWait() {
+    if (this._pendingResolve) {
+      this._pendingResolve(undefined);
+      this._pendingResolve = null;
+    }
   }
 
   getMessage() { return this._message; }
@@ -458,7 +610,14 @@ class CommitInputViewProvider {
         this._message = msg.value;
       } else if (msg.type === 'commit') {
         this._message = msg.value;
-        this._onDidCommit.fire(msg.value);
+        if (this._pendingResolve) {
+          // squash 등 외부 대기 중이면 그쪽으로 전달
+          const resolve = this._pendingResolve;
+          this._pendingResolve = null;
+          resolve(msg.value);
+        } else {
+          this._onDidCommit.fire(msg.value);
+        }
       } else if (msg.type === 'showHistory') {
         this._showHistoryQuickPick();
       }
@@ -589,6 +748,9 @@ class CommitInputViewProvider {
     window.addEventListener('message', (e) => {
       if (e.data.type === 'clear') { ta.value = ''; }
       if (e.data.type === 'restore') { ta.value = e.data.value; }
+      if (e.data.type === 'setButtonLabel') {
+        document.getElementById('commitBtn').textContent = e.data.value;
+      }
     });
   </script>
 </body>
@@ -1233,7 +1395,7 @@ async function continueOperation() {
   }
 }
 
-async function execSquashCommits(item) {
+async function execSquashCommits(item, commitInputProvider) {
   const cwd = await validateGitWorkspace();
   if (!cwd) return;
 
@@ -1255,15 +1417,15 @@ async function execSquashCommits(item) {
   const messages = commits.map((line) => line.substring(line.indexOf(' ') + 1));
   const defaultMsg = messages.join('\n');
 
-  const userMsg = await vscode.window.showInputBox({
-    title: isKo ? '커밋 합치기' : 'Squash Commits',
-    prompt: isKo
-      ? `${commits.length}개 커밋을 합칩니다. 커밋 메시지를 입력하세요.`
-      : `Squashing ${commits.length} commits. Enter commit message.`,
-    value: defaultMsg,
-    ignoreFocusOut: true,
-  });
-  if (userMsg === undefined) return;
+  // 사이드바 메시지 입력창에 기존 메시지를 세팅하고 커밋 버튼 대기
+  const squashLabel = isKo ? '커밋 합치기' : 'Squash Commits';
+  vscode.window.showInformationMessage(
+    isKo
+      ? `${commits.length}개 커밋을 합칩니다. 메시지를 수정한 뒤 [${squashLabel}] 버튼을 누르세요.`
+      : `Squashing ${commits.length} commits. Edit the message and press [${squashLabel}].`
+  );
+  const userMsg = await commitInputProvider.waitForCommit(defaultMsg, squashLabel);
+  if (!userMsg || !userMsg.trim()) return;
 
   // 커밋 시간 옵션
   const timeLabel = isKo
@@ -1311,6 +1473,7 @@ async function execSquashCommits(item) {
     }
     await execGit(commitArgs, cwd, { env: { ...process.env, ...env } });
 
+    commitInputProvider.addHistory(userMsg);
     vscode.window.showInformationMessage(
       isKo
         ? `${commits.length}개 커밋이 합쳐졌습니다.`
@@ -1325,6 +1488,81 @@ async function execSquashCommits(item) {
     if (stashed) {
       try { await execGit(['stash', 'pop'], cwd); } catch { /* ignore */ }
     }
+  }
+}
+
+async function execAmendMessage(item, commitInputProvider) {
+  const cwd = await validateGitWorkspace();
+  if (!cwd) return;
+
+  const hash = item.commitHash;
+
+  // 선택된 커밋이 실제 HEAD인지 확인 (히스토리가 오래된 경우 방어)
+  try {
+    const { stdout } = await execGitSilent(['rev-parse', 'HEAD'], cwd);
+    if (stdout.trim() !== hash) {
+      vscode.window.showWarningMessage(
+        isKo
+          ? '히스토리가 최신이 아닙니다. 새로고침 후 다시 시도하세요.'
+          : 'History is outdated. Please refresh and try again.'
+      );
+      return;
+    }
+  } catch { return; }
+
+  // 현재 커밋 메시지 조회
+  const { stdout: currentMsg } = await execGitSilent(
+    ['log', '-1', '--format=%B', 'HEAD'], cwd
+  );
+
+  // 사이드바 메시지 입력창에 현재 메시지를 세팅하고 커밋 버튼 대기
+  const amendLabel = isKo ? '메시지 수정' : 'Amend Message';
+  vscode.window.showInformationMessage(
+    isKo
+      ? `커밋 메시지를 수정한 뒤 [${amendLabel}] 버튼을 누르세요.`
+      : `Edit the commit message and press [${amendLabel}].`
+  );
+  const userMsg = await commitInputProvider.waitForCommit(currentMsg.trim(), amendLabel);
+  if (!userMsg || !userMsg.trim()) return;
+
+  // 커밋 시간 옵션
+  const timeLabel = isKo
+    ? ['원래 커밋 시간 유지', '현재 시간 사용']
+    : ['Keep original commit time', 'Use current time'];
+  const timeChoice = await vscode.window.showQuickPick(
+    [
+      { label: timeLabel[0], value: 'original' },
+      { label: timeLabel[1], value: 'now' },
+    ],
+    {
+      title: isKo ? '커밋 시간 선택' : 'Commit time',
+      placeHolder: isKo ? '수정된 커밋의 시간을 선택하세요' : 'Choose the time for the amended commit',
+    }
+  );
+  if (!timeChoice) return;
+
+  try {
+    const commitArgs = ['commit', '--amend', '-m', userMsg];
+    const env = {};
+    if (timeChoice.value === 'original') {
+      // amend는 기본적으로 author date를 유지하므로 추가 설정 불필요
+    } else {
+      // --date 옵션으로 author date를 현재 시간으로 변경
+      const now = new Date().toISOString();
+      commitArgs.push('--date', now);
+      env.GIT_COMMITTER_DATE = now;
+    }
+    await execGit(commitArgs, cwd, { env: { ...process.env, ...env } });
+
+    commitInputProvider.addHistory(userMsg);
+    vscode.window.showInformationMessage(
+      isKo ? '커밋 메시지가 수정되었습니다.' : 'Commit message amended.'
+    );
+  } catch (err) {
+    const errMsg = err.stderr || err.message || String(err);
+    vscode.window.showErrorMessage(
+      isKo ? `메시지 수정 실패: ${errMsg}` : `Amend failed: ${errMsg}`
+    );
   }
 }
 
@@ -1802,6 +2040,7 @@ class GitQuickPickTreeProvider {
       case 'commitSection': return this._getChangedFileItems(cwd, null);
       case 'changedDir': return this._getChangedFileItems(cwd, element.dirPath);
       case 'historySection': return this._getHistoryItems(cwd);
+      case 'historyCommitLatest':
       case 'historyCommit': return this._getCommitFileItems(cwd, element);
       case 'localBranchSection': return this._getLocalBranchItems(cwd);
       case 'remoteBranchSection': return this._getRemoteBranchItems(cwd);
@@ -1983,11 +2222,11 @@ class GitQuickPickTreeProvider {
 
   async _getHistoryItems(cwd) {
     const commits = await getCommitLog(cwd);
-    return commits.map(c => {
+    return commits.map((c, i) => {
       const item = new vscode.TreeItem(c.message, vscode.TreeItemCollapsibleState.Collapsed);
       item.description = `${c.author}  ${c.date}  ${c.hash.substring(0, 7)}`;
       item.iconPath = new vscode.ThemeIcon('git-commit');
-      item.contextValue = 'historyCommit';
+      item.contextValue = i === 0 ? 'historyCommitLatest' : 'historyCommit';
       item.commitHash = c.hash;
       return item;
     });
@@ -2177,6 +2416,34 @@ function activate(context) {
     vscode.workspace.onDidSaveTextDocument(() => treeProvider.updateStatus())
   );
 
+  // ─── Inline Git Blame ──────────────────────────────────────────────
+  // 커서 이동 시 현재 줄의 blame 정보를 인라인으로 표시
+  context.subscriptions.push(
+    vscode.window.onDidChangeTextEditorSelection(e => {
+      scheduleBlameUpdate(e.textEditor);
+    })
+  );
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor(editor => {
+      if (editor) {
+        lastBlameKey = '';
+        scheduleBlameUpdate(editor);
+      }
+    })
+  );
+  // 파일 저장 시 blame 캐시 초기화 후 갱신
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument(() => {
+      lastBlameKey = '';
+      const editor = vscode.window.activeTextEditor;
+      if (editor) scheduleBlameUpdate(editor);
+    })
+  );
+  // 초기 에디터에 대해 blame 표시
+  if (vscode.window.activeTextEditor) {
+    scheduleBlameUpdate(vscode.window.activeTextEditor);
+  }
+
   // 전체 트리 갱신 (상태 + UI + 컨텍스트)
   async function fullRefresh() {
     await treeProvider._fetchStatus();
@@ -2246,7 +2513,19 @@ function activate(context) {
     'gitReflow.execSwitch': withRefresh((item) => execSwitch(item)),
     'gitReflow.openFileDiff': (fileUri) => openFileDiff(fileUri),
     'gitReflow.openCommitFileDiff': (hash, filePath, cwd) => openCommitFileDiff(hash, filePath, cwd),
-    'gitReflow.execInteractiveRebase': withRefresh((item) => execSquashCommits(item)),
+    'gitReflow.jumpToSource': (item) => {
+      if (!item) return;
+      const cwd = getWorkspaceCwd();
+      if (!cwd) return;
+      // 변경사항 파일은 filePath, 히스토리 파일은 tooltip에 상대경로
+      const relativePath = item.filePath || item.tooltip;
+      if (!relativePath) return;
+      const absPath = path.join(cwd, relativePath);
+      const uri = vscode.Uri.file(absPath);
+      vscode.window.showTextDocument(uri, { preview: false });
+    },
+    'gitReflow.execInteractiveRebase': withRefresh((item) => execSquashCommits(item, commitInputProvider)),
+    'gitReflow.execAmendMessage': withRefresh((item) => execAmendMessage(item, commitInputProvider)),
     'gitReflow.abortOperation': withRefresh(() => abortOperation()),
     'gitReflow.continueOperation': withRefresh(() => continueOperation()),
     'gitReflow.copyHash': (item) => copyHash(item),
@@ -2273,6 +2552,9 @@ function activate(context) {
   }
 }
 
-function deactivate() {}
+function deactivate() {
+  if (blameTimeout) clearTimeout(blameTimeout);
+  blameDecorationType.dispose();
+}
 
 module.exports = { activate, deactivate };
