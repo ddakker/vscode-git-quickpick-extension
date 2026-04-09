@@ -539,16 +539,27 @@ class CommitInputViewProvider {
       this._pendingResolve = null;
     }
     this.setMessage(defaultMsg);
+    // 버튼 라벨 저장 (resolveWebviewView에서 복원용)
+    this._pendingButtonLabel = buttonLabel || null;
     // 버튼 라벨 변경
     if (buttonLabel && this._view) {
       this._view.webview.postMessage({ type: 'setButtonLabel', value: buttonLabel });
     }
+    // 취소 버튼 표시
+    const cancelLabel = isKo ? '취소' : 'Cancel';
+    this._pendingCancelLabel = cancelLabel;
+    if (this._view) {
+      this._view.webview.postMessage({ type: 'showCancel', value: cancelLabel });
+    }
     // 사이드바 패널 포커스
     vscode.commands.executeCommand('gitQuickPickCommitInput.focus');
     const restoreLabel = () => {
+      this._pendingButtonLabel = null;
+      this._pendingCancelLabel = null;
       if (this._view) {
         const original = isKo ? '\u2713 커밋' : '\u2713 Commit';
         this._view.webview.postMessage({ type: 'setButtonLabel', value: original });
+        this._view.webview.postMessage({ type: 'hideCancel' });
       }
       this.clearMessage();
     };
@@ -602,6 +613,13 @@ class CommitInputViewProvider {
     if (this._message) {
       setTimeout(() => {
         webviewView.webview.postMessage({ type: 'restore', value: this._message });
+        // 패널이 닫혀있다가 열릴 때 버튼 라벨/취소 버튼 복원 (squash/amend 등)
+        if (this._pendingButtonLabel) {
+          webviewView.webview.postMessage({ type: 'setButtonLabel', value: this._pendingButtonLabel });
+        }
+        if (this._pendingCancelLabel) {
+          webviewView.webview.postMessage({ type: 'showCancel', value: this._pendingCancelLabel });
+        }
       }, 100);
     }
 
@@ -618,6 +636,8 @@ class CommitInputViewProvider {
         } else {
           this._onDidCommit.fire(msg.value);
         }
+      } else if (msg.type === 'cancel') {
+        this.cancelWait();
       } else if (msg.type === 'showHistory') {
         this._showHistoryQuickPick();
       }
@@ -649,21 +669,19 @@ class CommitInputViewProvider {
 <head>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; background: transparent; }
+  html, body { background: transparent; }
   body {
     padding: 4px;
-    display: flex;
-    flex-direction: column;
   }
   .input-wrap {
-    flex: 1;
     display: flex;
-    align-items: stretch;
+    align-items: flex-start;
     gap: 2px;
     min-height: 26px;
   }
   textarea {
     flex: 1;
+    height: 60px;
     padding: 4px 6px;
     border: 1px solid var(--vscode-input-border, #3c3c3c);
     background: var(--vscode-input-background, #1e1e1e);
@@ -710,6 +728,20 @@ class CommitInputViewProvider {
     cursor: pointer;
   }
   #commitBtn:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
+  #cancelBtn {
+    flex-shrink: 0;
+    width: 100%;
+    margin-top: 2px;
+    padding: 4px 0;
+    border: 1px solid var(--vscode-button-secondaryBorder, var(--vscode-input-border, #3c3c3c));
+    border-radius: 2px;
+    background: var(--vscode-button-secondaryBackground, #3a3d41);
+    color: var(--vscode-button-secondaryForeground, #fff);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size, 13px);
+    cursor: pointer;
+  }
+  #cancelBtn:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
 </style>
 </head>
 <body>
@@ -718,6 +750,7 @@ class CommitInputViewProvider {
     <button id="historyBtn" title="${recentLabel}"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.2a5.8 5.8 0 1 1 0 11.6A5.8 5.8 0 0 1 8 2.2zM7.4 4v4.4l3.2 1.9.6-1-2.6-1.5V4H7.4z"/></svg></button>
   </div>
   <button id="commitBtn">&#x2713; ${commitLabel}</button>
+  <button id="cancelBtn" style="display:none"></button>
   <script>
     const vscode = acquireVsCodeApi();
     const ta = document.getElementById('msg');
@@ -745,11 +778,33 @@ class CommitInputViewProvider {
       }
     });
 
+    document.getElementById('cancelBtn').addEventListener('click', () => {
+      vscode.postMessage({ type: 'cancel' });
+    });
+
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const cancelBtn = document.getElementById('cancelBtn');
+        if (cancelBtn.style.display !== 'none') {
+          e.preventDefault();
+          vscode.postMessage({ type: 'cancel' });
+        }
+      }
+    });
+
     window.addEventListener('message', (e) => {
       if (e.data.type === 'clear') { ta.value = ''; }
       if (e.data.type === 'restore') { ta.value = e.data.value; }
       if (e.data.type === 'setButtonLabel') {
         document.getElementById('commitBtn').textContent = e.data.value;
+      }
+      if (e.data.type === 'showCancel') {
+        const cancelBtn = document.getElementById('cancelBtn');
+        cancelBtn.textContent = e.data.value;
+        cancelBtn.style.display = '';
+      }
+      if (e.data.type === 'hideCancel') {
+        document.getElementById('cancelBtn').style.display = 'none';
       }
     });
   </script>
@@ -854,6 +909,7 @@ async function handleGitError(err, action, cwd) {
 
     const choice = await vscode.window.showWarningMessage(
       t('conflictDetected'),
+      { modal: true },
       t('resolveInEditor'),
       abortLabel,
       t('openTerminal')
@@ -898,7 +954,7 @@ async function execPush(force) {
   if (force) {
     const confirm = await vscode.window.showWarningMessage(
       t('forcePushConfirm', currentBranch),
-      { modal: false }, t('yes'), t('cancel')
+      { modal: true }, t('yes'), t('cancel')
     );
     if (confirm !== t('yes')) return;
   }
@@ -1061,7 +1117,7 @@ async function execRollbackFile(item) {
   const fileName = path.basename(item.filePath);
   const confirm = await vscode.window.showWarningMessage(
     isKo ? `${fileName} 변경을 되돌립니까?` : `Discard changes in ${fileName}?`,
-    { modal: false }, t('yes'), t('cancel')
+    { modal: true }, t('yes'), t('cancel')
   );
   if (confirm !== t('yes')) return;
   await execGit(['checkout', 'HEAD', '--', item.filePath], cwd);
@@ -1074,7 +1130,7 @@ async function execDeleteFile(item) {
   const fileName = path.basename(item.filePath);
   const confirm = await vscode.window.showWarningMessage(
     isKo ? `${fileName} 파일을 삭제합니까?` : `Delete ${fileName}?`,
-    { modal: false }, t('yes'), t('cancel')
+    { modal: true }, t('yes'), t('cancel')
   );
   if (confirm !== t('yes')) return;
 
@@ -1111,26 +1167,49 @@ async function execSwitch(item) {
 
   const branchName = item.branchName;
   const isRemote = item.contextValue === 'remoteBranch';
+  const targetName = isRemote ? branchName.replace(/^[^/]+\//, '') : branchName;
+
+  const doSwitch = async (force) => {
+    if (isRemote) {
+      const args = ['switch', '-c', targetName, branchName];
+      if (force) args.splice(1, 0, '--force');
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: t('executing', `git switch ${force ? '--force ' : ''}-c ${targetName} ${branchName}`) },
+        () => execGit(args, cwd)
+      );
+    } else {
+      const args = force ? ['switch', '--force', branchName] : ['switch', branchName];
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: t('executing', `git switch ${force ? '--force ' : ''}${branchName}`) },
+        () => execGit(args, cwd)
+      );
+    }
+    vscode.window.showInformationMessage(t('switchSuccess', targetName));
+  };
 
   try {
-    if (isRemote) {
-      // origin/feature/x → feature/x 로컬 트래킹 브랜치 생성 후 전환
-      const localName = branchName.replace(/^[^/]+\//, '');
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: t('executing', `git switch -c ${localName} ${branchName}`) },
-        () => execGit(['switch', '-c', localName, branchName], cwd)
-      );
-      vscode.window.showInformationMessage(t('switchSuccess', localName));
-    } else {
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: t('executing', `git switch ${branchName}`) },
-        () => execGit(['switch', branchName], cwd)
-      );
-      vscode.window.showInformationMessage(t('switchSuccess', branchName));
-    }
+    await doSwitch(false);
   } catch (err) {
     const msg = err.stderr || err.message || String(err);
-    vscode.window.showErrorMessage(t('failed', msg.trim()));
+    if (!msg.includes('overwritten by checkout') && !msg.includes('would be overwritten')) {
+      vscode.window.showErrorMessage(t('failed', msg.trim()));
+      return;
+    }
+    const forceLabel = isKo ? '강제 전환 (변경사항 삭제)' : 'Force Switch (discard changes)';
+    const choice = await vscode.window.showWarningMessage(
+      isKo ? '커밋하지 않은 변경사항이 있어 브랜치를 전환할 수 없습니다. 변경사항을 커밋한 뒤 다시 시도하거나, 강제 전환하세요.'
+            : 'Cannot switch branches: you have uncommitted changes. Commit your changes first, or force switch.',
+      { modal: true },
+      forceLabel
+    );
+    if (choice === forceLabel) {
+      try {
+        await doSwitch(true);
+      } catch (forceErr) {
+        const forceMsg = forceErr.stderr || forceErr.message || String(forceErr);
+        vscode.window.showErrorMessage(t('failed', forceMsg.trim()));
+      }
+    }
   }
 }
 
@@ -1228,7 +1307,7 @@ async function execReset(item, mode) {
   if (mode === '--hard') {
     const confirm = await vscode.window.showWarningMessage(
       t('confirmHardReset', hash.substring(0, 8)),
-      { modal: false }, t('yes'), t('cancel')
+      { modal: true }, t('yes'), t('cancel')
     );
     if (confirm !== t('yes')) return;
   }
@@ -1337,7 +1416,7 @@ async function abortOperation() {
     : t('abortMerge');
 
   const confirm = await vscode.window.showWarningMessage(
-    label + '?', { modal: false }, t('yes'), t('cancel')
+    label + '?', { modal: true }, t('yes'), t('cancel')
   );
   if (confirm !== t('yes')) return;
 
@@ -1583,7 +1662,7 @@ async function resetToHere(item) {
   if (modeChoice.value === '--hard') {
     const confirm = await vscode.window.showWarningMessage(
       t('confirmHardReset', hash.substring(0, 8)),
-      { modal: false }, t('yes'), t('cancel')
+      { modal: true }, t('yes'), t('cancel')
     );
     if (confirm !== t('yes')) return;
   }
@@ -1734,7 +1813,7 @@ async function pushBranch() {
 
   if (pushAction.value === 'force') {
     const confirm = await vscode.window.showWarningMessage(
-      t('forcePushConfirm', currentBranch), { modal: false }, t('yes'), t('cancel')
+      t('forcePushConfirm', currentBranch), { modal: true }, t('yes'), t('cancel')
     );
     if (confirm !== t('yes')) return;
   }
@@ -1825,7 +1904,7 @@ async function resetCommit() {
 
   if (modeChoice.value === '--hard') {
     const confirm = await vscode.window.showWarningMessage(
-      t('confirmHardReset', commit.hash.substring(0, 8)), { modal: false }, t('yes'), t('cancel')
+      t('confirmHardReset', commit.hash.substring(0, 8)), { modal: true }, t('yes'), t('cancel')
     );
     if (confirm !== t('yes')) return;
   }
@@ -1941,7 +2020,7 @@ async function showHistory() {
 
     if (modeChoice.value === '--hard') {
       const confirm = await vscode.window.showWarningMessage(
-        t('confirmHardReset', commit.hash.substring(0, 8)), { modal: false }, t('yes'), t('cancel')
+        t('confirmHardReset', commit.hash.substring(0, 8)), { modal: true }, t('yes'), t('cancel')
       );
       if (confirm !== t('yes')) return;
     }
