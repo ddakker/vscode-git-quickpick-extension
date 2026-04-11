@@ -132,6 +132,11 @@ const messages = {
   switchSuccess:      ['{0} 브랜치로 전환 완료', 'Switched to branch {0}'],
   enterBranchName:    ['새 브랜치 이름을 입력하세요', 'Enter new branch name'],
   branchCreated:      ['브랜치 생성 완료: {0}', 'Branch created: {0}'],
+  // ─── Credentials ───────────────────────────────────────
+  authUsername:       ['{0} 사용자 이름', 'Username for {0}'],
+  authPassword:       ['{0}@{1} 비밀번호', 'Password for {0}@{1}'],
+  authRequired:       ['{0} 인증이 필요합니다', 'Authentication required for {0}'],
+  authCancelled:      ['인증이 취소되었습니다.', 'Authentication cancelled.'],
 };
 
 function t(key, ...args) {
@@ -156,17 +161,146 @@ function getWorkspaceCwd() {
   return folders[0].uri.fsPath;
 }
 
+// git 자식 프로세스용 환경변수 빌더
+// - TTY/askpass 제거: 우리가 직접 credential 주입하므로 외부 askpass가 간섭하지 않도록 차단
+// - Fedora/KDE 환경이 상속시키는 GIT_ASKPASS=/usr/bin/ksshaskpass / SSH_ASKPASS 차단
+// - Remote-SSH 환경에서는 VS Code 내장 askpass.sh가 VSCODE_GIT_IPC_HANDLE 등 내부 env를
+//   요구하는데 외부 확장에서는 접근 불가하므로 사용하지 않음
+function buildGitEnv() {
+  const env = { ...process.env };
+  env.SSH_ASKPASS = '';
+  delete env.GIT_ASKPASS;
+  env.GIT_TERMINAL_PROMPT = '0';
+  return env;
+}
+
+// ─── Custom Askpass & Credential Handling ──────────────────────────
+// VS Code 내장 askpass.sh는 IPC 핸들이 필요해 외부 확장에서 재사용 불가.
+// 자체 shell askpass를 만들어 GIT_REFLOW_USERNAME/PASSWORD env var로 credential 전달.
+
+let _customAskpassPath = null;
+const _credCache = new Map(); // host -> { username, password }
+
+function ensureCustomAskpass(context) {
+  if (_customAskpassPath && fs.existsSync(_customAskpassPath)) {
+    return _customAskpassPath;
+  }
+  const dir = context.globalStorageUri
+    ? context.globalStorageUri.fsPath
+    : path.join(os.tmpdir(), 'git-reflow');
+  fs.mkdirSync(dir, { recursive: true });
+  const askpassPath = path.join(dir, 'git-reflow-askpass.sh');
+  const script = `#!/bin/sh
+# git-reflow custom askpass — credentials passed via env vars
+case "$1" in
+  *[Uu]sername*) printf '%s' "$GIT_REFLOW_USERNAME" ;;
+  *)             printf '%s' "$GIT_REFLOW_PASSWORD" ;;
+esac
+`;
+  fs.writeFileSync(askpassPath, script);
+  fs.chmodSync(askpassPath, 0o755);
+  _customAskpassPath = askpassPath;
+  return askpassPath;
+}
+
+function isHttpRemote(url) {
+  return /^https?:\/\//i.test(url || '');
+}
+
+function isAuthError(err) {
+  const msg = (err.stderr || '') + (err.stdout || '') + (err.message || '');
+  return /Authentication failed|could not read (Username|Password)|terminal prompts disabled|died of signal|ksshaskpass/i.test(msg);
+}
+
+// 에러 메시지에서 git이 접근하려 한 HTTP(S) URL을 파싱하여 host/username 추출
+// 예: "fatal: could not read Password for 'http://ddakker@host:port'" → { host, username: 'ddakker' }
+//     "fatal: Authentication failed for 'http://host:port/path'"     → { host, username: null }
+function parseAuthTargetFromError(err) {
+  const msg = (err.stderr || '') + (err.stdout || '') + (err.message || '');
+  const m = msg.match(/https?:\/\/[^\s'"]+/);
+  if (!m) return null;
+  try {
+    const u = new URL(m[0]);
+    return {
+      host: u.host,
+      username: u.username ? decodeURIComponent(u.username) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function promptCredentials(host, knownUsername) {
+  let username = knownUsername;
+  if (!username) {
+    username = await vscode.window.showInputBox({
+      prompt: t('authUsername', host),
+      ignoreFocusOut: true,
+    });
+    if (!username) return null;
+  }
+  const password = await vscode.window.showInputBox({
+    prompt: t('authPassword', username, host),
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (!password) return null;
+  return { username, password };
+}
+
+// auth 실패 시 credential 프롬프트 + 재시도 (HTTP(S) 원격에만 적용)
+// 에러 메시지에서 URL을 직접 추출해 여러 remote 환경에서도 정확히 동작
+async function retryWithCredentials(args, cwd, options, origErr) {
+  const target = parseAuthTargetFromError(origErr);
+  if (!target) throw origErr;
+
+  const { host, username: urlUsername } = target;
+  const cacheKey = urlUsername ? `${urlUsername}@${host}` : host;
+  let creds = _credCache.get(cacheKey);
+  if (!creds) {
+    vscode.window.showInformationMessage(t('authRequired', host));
+    creds = await promptCredentials(host, urlUsername);
+    if (!creds) {
+      vscode.window.showWarningMessage(t('authCancelled'));
+      throw origErr;
+    }
+  }
+
+  if (!_customAskpassPath) throw origErr;
+
+  const authEnv = {
+    ...buildGitEnv(),
+    ...(options.env || {}),
+    GIT_ASKPASS: _customAskpassPath,
+    GIT_REFLOW_USERNAME: creds.username,
+    GIT_REFLOW_PASSWORD: creds.password,
+  };
+
+  try {
+    const result = await execGit(args, cwd, {
+      ...options, env: authEnv, _noAuthRetry: true,
+    });
+    _credCache.set(cacheKey, creds);
+    return result;
+  } catch (retryErr) {
+    if (isAuthError(retryErr)) _credCache.delete(cacheKey);
+    throw retryErr;
+  }
+}
+
 // 내부 헬퍼용 (로그 없이 실행 — status, rev-parse 등 빈번한 조회)
 async function execGitSilent(args, cwd, options = {}) {
   return execFileAsync('git', args, {
     cwd,
     maxBuffer: 1024 * 1024,
+    env: buildGitEnv(),
     ...options,
   });
 }
 
 // 사용자 명령용 (출력 로그에 기록 + 자동 표시)
 async function execGit(args, cwd, options = {}) {
+  const { _noAuthRetry, ...execOptions } = options;
   const cmdStr = `git ${args.join(' ')}`;
   if (outputChannel) {
     outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] $ ${cmdStr}`);
@@ -176,7 +310,8 @@ async function execGit(args, cwd, options = {}) {
     const result = await execFileAsync('git', args, {
       cwd,
       maxBuffer: 1024 * 1024,
-      ...options,
+      env: buildGitEnv(),
+      ...execOptions,
     });
     if (outputChannel) {
       if (result.stdout && result.stdout.trim()) {
@@ -189,6 +324,20 @@ async function execGit(args, cwd, options = {}) {
     }
     return result;
   } catch (err) {
+    // 인증 에러면 credential 프롬프트 + 1회 재시도
+    if (!_noAuthRetry && isAuthError(err)) {
+      try {
+        return await retryWithCredentials(args, cwd, execOptions, err);
+      } catch (retryErr) {
+        if (outputChannel) {
+          const errMsg = (retryErr.stderr || '') + (retryErr.stdout || '')
+            || retryErr.message || String(retryErr);
+          outputChannel.appendLine(`[ERROR] ${errMsg.trimEnd()}`);
+          outputChannel.appendLine('');
+        }
+        throw retryErr;
+      }
+    }
     if (outputChannel) {
       const errMsg = (err.stderr || '') + (err.stdout || '') || err.message || String(err);
       outputChannel.appendLine(`[ERROR] ${errMsg.trimEnd()}`);
@@ -2390,6 +2539,13 @@ function activate(context) {
   // Output Channel 생성
   outputChannel = vscode.window.createOutputChannel('Git QuickPick');
   context.subscriptions.push(outputChannel);
+
+  // 자체 askpass 스크립트 생성 (Remote-SSH에서 credential 프롬프트 지원)
+  try {
+    ensureCustomAskpass(context);
+  } catch (err) {
+    outputChannel.appendLine(`[WARN] Failed to create custom askpass: ${err.message}`);
+  }
 
   // Git content provider 등록 (history diff용)
   const gitProvider = new GitContentProvider();
