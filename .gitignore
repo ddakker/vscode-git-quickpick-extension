@@ -2,6 +2,7 @@ node_modules/
 *.vsix
 build-info.json
 .vscode/
+.vscodeignore
 .claude/
 .bkit/
 plan/

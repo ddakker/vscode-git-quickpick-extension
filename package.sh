@@ -3,6 +3,15 @@ set -e
 
 cd "$(dirname "$0")"
 
+# ─── 패키징 전 테스트 실행 ───
+echo "=== 테스트 실행 ==="
+if ! node tests/run.js; then
+  echo ""
+  echo "❌ 테스트 실패 — 패키징을 중단합니다."
+  exit 1
+fi
+echo ""
+
 if ! command -v vsce &> /dev/null; then
   echo "vsce가 설치되어 있지 않습니다. 설치합니다..."
   npm install -g @vscode/vsce

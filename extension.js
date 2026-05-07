@@ -9,6 +9,16 @@ const os = require('os');
 
 const execFileAsync = promisify(execFile);
 
+// 순수 헬퍼 — vscode 의존 없는 함수들은 lib/git-helpers.js 로 분리
+const {
+  buildGitEnv,
+  isHttpRemote,
+  isAuthError,
+  parseAuthTargetFromError,
+  isConflict,
+  formatCommitDate,
+} = require('./lib/git-helpers');
+
 // ─── Output Channel ────────────────────────────────────────────────
 
 let outputChannel;
@@ -29,6 +39,8 @@ const messages = {
   current:          ['(현재)', '(current)'],
   noBranches:       ['선택 가능한 브랜치가 없습니다.', 'No branches available.'],
   fetchingRemotes:  ['원격 저장소 가져오는 중...', 'Fetching remote branches...'],
+  fetchingBranch:   ['{0} 브랜치 가져오는 중...', 'Fetching branch {0}...'],
+  notFetched:       ['(미페치)', '(not fetched)'],
   executing:        ['실행 중: {0}', 'Executing: {0}'],
   success:          ['완료: {0}', 'Done: {0}'],
   successWithCount: ['{0} 완료 ({1}개 커밋)', 'Done: {0} ({1} commits)'],
@@ -79,6 +91,30 @@ const messages = {
   openingMergeEditor: [
     '충돌 파일 {0}개를 Merge Editor에서 엽니다.',
     'Opening {0} conflicted file(s) in Merge Editor.'
+  ],
+  // ─── Modify/Delete conflict ────────────────────────────
+  modifyDeleteTitle: [
+    '충돌: {0} (한 쪽에서 삭제, 다른 쪽에서 수정)',
+    'Conflict: {0} (deleted on one side, modified on the other)'
+  ],
+  deletedByIncoming: [
+    '이 커밋(incoming)에서 삭제되었고, 현재 브랜치(HEAD)에서는 수정되었습니다.',
+    'Deleted in the incoming commit, modified in the current branch (HEAD).'
+  ],
+  deletedByCurrent: [
+    '현재 브랜치(HEAD)에서 삭제되었고, 이 커밋(incoming)에서는 수정되었습니다.',
+    'Deleted in the current branch (HEAD), modified in the incoming commit.'
+  ],
+  keepDeletion:       ['삭제 유지', 'Keep deletion'],
+  keepFile:           ['파일 유지', 'Keep file'],
+  openFileToReview:   ['파일 열어보기', 'Open file to review'],
+  modifyDeleteResolvedDeleted: [
+    '{0} 삭제로 해결했습니다.',
+    '{0} resolved as deleted.'
+  ],
+  modifyDeleteResolvedKept: [
+    '{0} 파일 유지로 해결했습니다.',
+    '{0} resolved as kept.'
   ],
   // ─── Push ──────────────────────────────────────────────
   push:               ['Push', 'Push'],
@@ -161,19 +197,6 @@ function getWorkspaceCwd() {
   return folders[0].uri.fsPath;
 }
 
-// git 자식 프로세스용 환경변수 빌더
-// - TTY/askpass 제거: 우리가 직접 credential 주입하므로 외부 askpass가 간섭하지 않도록 차단
-// - Fedora/KDE 환경이 상속시키는 GIT_ASKPASS=/usr/bin/ksshaskpass / SSH_ASKPASS 차단
-// - Remote-SSH 환경에서는 VS Code 내장 askpass.sh가 VSCODE_GIT_IPC_HANDLE 등 내부 env를
-//   요구하는데 외부 확장에서는 접근 불가하므로 사용하지 않음
-function buildGitEnv() {
-  const env = { ...process.env };
-  env.SSH_ASKPASS = '';
-  delete env.GIT_ASKPASS;
-  env.GIT_TERMINAL_PROMPT = '0';
-  return env;
-}
-
 // ─── Custom Askpass & Credential Handling ──────────────────────────
 // VS Code 내장 askpass.sh는 IPC 핸들이 필요해 외부 확장에서 재사용 불가.
 // 자체 shell askpass를 만들어 GIT_REFLOW_USERNAME/PASSWORD env var로 credential 전달.
@@ -189,45 +212,39 @@ function ensureCustomAskpass(context) {
     ? context.globalStorageUri.fsPath
     : path.join(os.tmpdir(), 'git-reflow');
   fs.mkdirSync(dir, { recursive: true });
-  const askpassPath = path.join(dir, 'git-reflow-askpass.sh');
-  const script = `#!/bin/sh
+
+  const isWin = process.platform === 'win32';
+  if (isWin) {
+    // Windows: Node.js 스크립트 + 실행용 .bat wrapper
+    const jsPath = path.join(dir, 'git-reflow-askpass.js');
+    const jsScript = [
+      'var p = (process.argv[2] || "").toLowerCase();',
+      'var k = p.indexOf("username") !== -1',
+      '  ? "GIT_REFLOW_USERNAME" : "GIT_REFLOW_PASSWORD";',
+      'process.stdout.write(process.env[k] || "");',
+    ].join('\n');
+    fs.writeFileSync(jsPath, jsScript);
+
+    const batPath = path.join(dir, 'git-reflow-askpass.bat');
+    const nodePath = process.execPath.replace(/\\/g, '\\\\');
+    const batScript = `@"${nodePath}" "${jsPath.replace(/\\/g, '\\\\')}" %*\r\n`;
+    fs.writeFileSync(batPath, batScript);
+    _customAskpassPath = batPath;
+  } else {
+    // macOS / Linux: shell 스크립트
+    const askpassPath = path.join(dir, 'git-reflow-askpass.sh');
+    const script = `#!/bin/sh
 # git-reflow custom askpass — credentials passed via env vars
 case "$1" in
   *[Uu]sername*) printf '%s' "$GIT_REFLOW_USERNAME" ;;
   *)             printf '%s' "$GIT_REFLOW_PASSWORD" ;;
 esac
 `;
-  fs.writeFileSync(askpassPath, script);
-  fs.chmodSync(askpassPath, 0o755);
-  _customAskpassPath = askpassPath;
-  return askpassPath;
-}
-
-function isHttpRemote(url) {
-  return /^https?:\/\//i.test(url || '');
-}
-
-function isAuthError(err) {
-  const msg = (err.stderr || '') + (err.stdout || '') + (err.message || '');
-  return /Authentication failed|could not read (Username|Password)|terminal prompts disabled|died of signal|ksshaskpass/i.test(msg);
-}
-
-// 에러 메시지에서 git이 접근하려 한 HTTP(S) URL을 파싱하여 host/username 추출
-// 예: "fatal: could not read Password for 'http://ddakker@host:port'" → { host, username: 'ddakker' }
-//     "fatal: Authentication failed for 'http://host:port/path'"     → { host, username: null }
-function parseAuthTargetFromError(err) {
-  const msg = (err.stderr || '') + (err.stdout || '') + (err.message || '');
-  const m = msg.match(/https?:\/\/[^\s'"]+/);
-  if (!m) return null;
-  try {
-    const u = new URL(m[0]);
-    return {
-      host: u.host,
-      username: u.username ? decodeURIComponent(u.username) : null,
-    };
-  } catch {
-    return null;
+    fs.writeFileSync(askpassPath, script);
+    fs.chmodSync(askpassPath, 0o755);
+    _customAskpassPath = askpassPath;
   }
+  return _customAskpassPath;
 }
 
 async function promptCredentials(host, knownUsername) {
@@ -299,10 +316,11 @@ async function execGitSilent(args, cwd, options = {}) {
 }
 
 // 사용자 명령용 (출력 로그에 기록 + 자동 표시)
+// options._silent: true → outputChannel 로그/표시 생략 (백그라운드 조회용, auth retry는 유지)
 async function execGit(args, cwd, options = {}) {
-  const { _noAuthRetry, ...execOptions } = options;
+  const { _noAuthRetry, _silent, ...execOptions } = options;
   const cmdStr = `git ${args.join(' ')}`;
-  if (outputChannel) {
+  if (outputChannel && !_silent) {
     outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] $ ${cmdStr}`);
     outputChannel.show(true); // 출력 패널 자동 표시 (포커스 안 뺏김)
   }
@@ -313,7 +331,7 @@ async function execGit(args, cwd, options = {}) {
       env: buildGitEnv(),
       ...execOptions,
     });
-    if (outputChannel) {
+    if (outputChannel && !_silent) {
       if (result.stdout && result.stdout.trim()) {
         outputChannel.appendLine(result.stdout.trimEnd());
       }
@@ -327,9 +345,9 @@ async function execGit(args, cwd, options = {}) {
     // 인증 에러면 credential 프롬프트 + 1회 재시도
     if (!_noAuthRetry && isAuthError(err)) {
       try {
-        return await retryWithCredentials(args, cwd, execOptions, err);
+        return await retryWithCredentials(args, cwd, { ...execOptions, _silent }, err);
       } catch (retryErr) {
-        if (outputChannel) {
+        if (outputChannel && !_silent) {
           const errMsg = (retryErr.stderr || '') + (retryErr.stdout || '')
             || retryErr.message || String(retryErr);
           outputChannel.appendLine(`[ERROR] ${errMsg.trimEnd()}`);
@@ -338,7 +356,7 @@ async function execGit(args, cwd, options = {}) {
         throw retryErr;
       }
     }
-    if (outputChannel) {
+    if (outputChannel && !_silent) {
       const errMsg = (err.stderr || '') + (err.stdout || '') || err.message || String(err);
       outputChannel.appendLine(`[ERROR] ${errMsg.trimEnd()}`);
       outputChannel.appendLine('');
@@ -375,24 +393,93 @@ async function getLocalBranches(cwd) {
   });
 }
 
+async function getRemoteNames(cwd) {
+  try {
+    const { stdout } = await execGitSilent(['remote'], cwd);
+    return stdout.split('\n').map(s => s.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// ls-remote 로 원격의 브랜치 이름만 빠르게 조회 (객체 전송 없음)
+// execGit(_silent) 로 호출 — 출력 패널 노이즈 없이 fetchAll 에서 캐시된 creds 재사용
+async function lsRemoteHeads(cwd, remote) {
+  try {
+    const { stdout } = await execGit(
+      ['ls-remote', '--heads', remote], cwd, { timeout: 15000, _silent: true }
+    );
+    if (!stdout.trim()) return [];
+    return stdout.trim().split('\n').map(line => {
+      const tabIdx = line.indexOf('\t');
+      if (tabIdx < 0) return null;
+      const ref = line.substring(tabIdx + 1);
+      const name = ref.replace(/^refs\/heads\//, '');
+      return `${remote}/${name}`;
+    }).filter(Boolean);
+  } catch (err) {
+    if (outputChannel) {
+      outputChannel.appendLine(`[WARN] ls-remote ${remote} failed: ${err.message || err}`);
+    }
+    return [];
+  }
+}
+
 async function getRemoteBranches(cwd) {
+  // 1) 로컬 추적 중인 원격 ref — 커밋 메시지/날짜 포함
   const { stdout } = await execGitSilent([
     'for-each-ref',
     '--sort=-committerdate',
     '--format=%(refname:short)%09%(subject)%09%(committerdate:relative)',
     'refs/remotes/',
   ], cwd);
-  if (!stdout.trim()) return [];
-  return stdout.trim().split('\n')
-    .filter(line => !line.includes('->'))
-    .map(line => {
+  const tracked = new Map();
+  if (stdout.trim()) {
+    for (const line of stdout.trim().split('\n')) {
+      if (line.includes('->')) continue; // origin/HEAD 심볼릭 제외
       const [name, subject, relTime] = line.split('\t');
-      return { name, description: `${subject} (${relTime})` };
-    });
+      tracked.set(name, { name, description: `${subject} (${relTime})` });
+    }
+  }
+
+  // 2) ls-remote 로 원격 브랜치 이름만 덧붙임 (미페치 표시)
+  const remotes = await getRemoteNames(cwd);
+  const remoteLists = await Promise.all(remotes.map(r => lsRemoteHeads(cwd, r)));
+  const unfetched = [];
+  for (const names of remoteLists) {
+    for (const name of names) {
+      if (!tracked.has(name)) {
+        unfetched.push({ name, description: t('notFetched'), unfetched: true });
+      }
+    }
+  }
+  unfetched.sort((a, b) => a.name.localeCompare(b.name));
+
+  return [...tracked.values(), ...unfetched];
 }
 
 async function fetchAll(cwd) {
   await execGit(['fetch', '--all'], cwd, { timeout: 30000 });
+}
+
+// 해당 원격 브랜치가 로컬에 추적되지 않았으면 네트워크에서 페치
+async function ensureRemoteBranchFetched(cwd, branchName) {
+  try {
+    await execGitSilent(
+      ['rev-parse', '--verify', `refs/remotes/${branchName}`], cwd
+    );
+    return;
+  } catch {
+    // 추적 ref 없음 → 개별 페치
+  }
+  const slash = branchName.indexOf('/');
+  if (slash < 0) return;
+  const remote = branchName.substring(0, slash);
+  const name = branchName.substring(slash + 1);
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: t('fetchingBranch', branchName) },
+    () => execGit(['fetch', remote, name], cwd, { timeout: 60000 })
+  );
 }
 
 async function isDetachedHead(cwd) {
@@ -503,18 +590,6 @@ async function showPullActionPicker() {
 }
 
 // ─── Commit Picker (shared) ────────────────────────────────────────
-
-function formatCommitDate(isoDate) {
-  const d = new Date(isoDate);
-  const yyyy = d.getFullYear();
-  const MM = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const h = d.getHours();
-  const ampm = h < 12 ? 'AM' : 'PM';
-  const hh = String(h % 12 || 12).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${yyyy}-${MM}-${dd} ${ampm} ${hh}:${mm}`;
-}
 
 async function getCommitLog(cwd, options = {}) {
   const { branch, count = 30 } = options;
@@ -987,16 +1062,79 @@ class GitContentProvider {
 
 // ─── Conflict Handling ──────────────────────────────────────────────
 
-function isConflict(errorMsg) {
-  return /CONFLICT|MERGE_CONFLICT|merge conflict/i.test(errorMsg);
-}
-
 async function getConflictedFiles(cwd) {
+  // git ls-files -u: 인덱스의 unmerged stage(1/2/3) 항목을 직접 조회.
+  // modify/delete 포함 모든 충돌 유형을 놓치지 않고 잡는다.
   try {
-    const { stdout } = await execGit(['diff', '--name-only', '--diff-filter=U'], cwd);
-    return stdout.trim().split('\n').filter(Boolean);
+    const { stdout } = await execGitSilent(['ls-files', '-u'], cwd);
+    const files = new Set();
+    for (const line of stdout.split('\n')) {
+      // 형식: <mode> <hash> <stage>\t<path>
+      const m = line.match(/^\S+\s+\S+\s+[123]\t(.+)$/);
+      if (m) files.add(m[1]);
+    }
+    return Array.from(files);
   } catch {
     return [];
+  }
+}
+
+// 파일의 충돌 stage 집합 조회 (1=base, 2=ours, 3=theirs)
+async function getConflictStages(cwd, file) {
+  const stages = new Set();
+  try {
+    const { stdout } = await execGitSilent(['ls-files', '-u', '--', file], cwd);
+    for (const line of stdout.split('\n')) {
+      // 형식: <mode> <hash> <stage>\t<path>
+      const m = line.match(/^\S+\s+\S+\s+([123])\s/);
+      if (m) stages.add(m[1]);
+    }
+  } catch { /* no conflict info */ }
+  return stages;
+}
+
+// modify/delete 충돌: 한 쪽에서 파일이 삭제되고 다른 쪽에서 수정된 경우
+async function resolveModifyDeleteConflict(cwd, file, stages) {
+  const deletedByOurs = !stages.has('2');   // ours(HEAD)에서 삭제
+  const deletedByTheirs = !stages.has('3'); // theirs(incoming)에서 삭제
+
+  const detail = deletedByTheirs ? t('deletedByIncoming')
+    : deletedByOurs ? t('deletedByCurrent')
+    : '';
+
+  const keepDeletion = t('keepDeletion');
+  const keepFile = t('keepFile');
+  const openFile = t('openFileToReview');
+
+  const choice = await vscode.window.showWarningMessage(
+    t('modifyDeleteTitle', file),
+    { modal: true, detail },
+    keepDeletion,
+    keepFile,
+    openFile
+  );
+
+  if (choice === keepDeletion) {
+    await execGit(['rm', '-f', '--', file], cwd);
+    vscode.window.showInformationMessage(t('modifyDeleteResolvedDeleted', file));
+  } else if (choice === keepFile) {
+    // 작업 트리에 파일이 없으면 살아있는 stage(2 또는 3) 내용을 복원
+    const filePath = path.join(cwd, file);
+    if (!fs.existsSync(filePath)) {
+      const aliveStage = stages.has('2') ? '2' : stages.has('3') ? '3' : null;
+      if (aliveStage) {
+        const { stdout } = await execGitSilent(['show', `:${aliveStage}:${file}`], cwd);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, stdout);
+      }
+    }
+    await execGit(['add', '--', file], cwd);
+    vscode.window.showInformationMessage(t('modifyDeleteResolvedKept', file));
+  } else if (choice === openFile) {
+    const filePath = path.join(cwd, file);
+    if (fs.existsSync(filePath)) {
+      await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(filePath));
+    }
   }
 }
 
@@ -1007,6 +1145,14 @@ async function openMergeEditors(cwd, files) {
   fs.mkdirSync(tmpDir, { recursive: true });
 
   for (const file of files) {
+    const stages = await getConflictStages(cwd, file);
+    // modify/delete 충돌: ours(2) 또는 theirs(3) 중 하나가 없음
+    const isModifyDelete = !stages.has('2') || !stages.has('3');
+    if (isModifyDelete) {
+      await resolveModifyDeleteConflict(cwd, file, stages);
+      continue;
+    }
+
     const fileName = path.basename(file);
     const resultUri = vscode.Uri.file(path.join(cwd, file));
     try {
@@ -1318,6 +1464,16 @@ async function execSwitch(item) {
   const isRemote = item.contextValue === 'remoteBranch';
   const targetName = isRemote ? branchName.replace(/^[^/]+\//, '') : branchName;
 
+  if (isRemote && item.unfetched) {
+    try {
+      await ensureRemoteBranchFetched(cwd, branchName);
+      item.unfetched = false;
+    } catch (err) {
+      vscode.window.showErrorMessage(t('failed', (err.stderr || err.message || String(err)).trim()));
+      return;
+    }
+  }
+
   const doSwitch = async (force) => {
     if (isRemote) {
       const args = ['switch', '-c', targetName, branchName];
@@ -1382,6 +1538,16 @@ async function execRebaseMerge(item, action) {
 
   const currentBranch = await getCurrentBranch(cwd);
   const selectedBranch = item.branchName;
+
+  if (item.unfetched) {
+    try {
+      await ensureRemoteBranchFetched(cwd, selectedBranch);
+      item.unfetched = false;
+    } catch (err) {
+      vscode.window.showErrorMessage(t('failed', (err.stderr || err.message || String(err)).trim()));
+      return;
+    }
+  }
 
   const confirmMsg = action === 'rebase'
     ? t('confirmRebase', currentBranch, selectedBranch)
@@ -1856,6 +2022,15 @@ async function rebaseMerge(remote) {
   const selectedBranch = await showBranchPicker(branches, currentBranch);
   if (!selectedBranch) return;
 
+  if (remote) {
+    try {
+      await ensureRemoteBranchFetched(cwd, selectedBranch);
+    } catch (err) {
+      vscode.window.showErrorMessage(t('failed', (err.stderr || err.message || String(err)).trim()));
+      return;
+    }
+  }
+
   const action = await showActionPicker(selectedBranch);
   if (!action) return;
 
@@ -2204,6 +2379,7 @@ class GitQuickPickTreeProvider {
   // 섹션 펼침 상태 추적
   _expandedSections = new Set();
   _remoteFetchRequested = true; // 최초 펼칠 때 fetch
+  _remoteBranchCache = null;    // getRemoteBranches 결과 캐시 (refresh 시 무효화)
 
   getCheckedFiles() {
     const result = [];
@@ -2501,26 +2677,45 @@ class GitQuickPickTreeProvider {
   }
 
   async _getRemoteBranchItems(cwd) {
-    // fetch는 수동 새로고침(refreshView) 시에만 실행
+    // fetch / ls-remote 는 수동 새로고침(refreshView) 또는 섹션 재펼침 시에만 실행
     if (this._remoteFetchRequested) {
       this._remoteFetchRequested = false;
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: t('fetchingRemotes') },
-        () => fetchAll(cwd)
-      );
+      this._remoteBranchCache = null;
+      try {
+        await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: t('fetchingRemotes') },
+          () => fetchAll(cwd)
+        );
+      } catch (err) {
+        // 인증 취소/실패 → 로컬 추적 refs 로 폴백. 재시도는 collapse 후 re-expand 로.
+        outputChannel.appendLine(`[WARN] fetch --all failed: ${err.message || err}`);
+      }
     }
-    const branches = await getRemoteBranches(cwd);
+    if (!this._remoteBranchCache) {
+      this._remoteBranchCache = await getRemoteBranches(cwd);
+    }
+    const branches = this._remoteBranchCache;
     return branches.map(b => {
       const item = new vscode.TreeItem(b.name, vscode.TreeItemCollapsibleState.Collapsed);
-      item.iconPath = new vscode.ThemeIcon('cloud');
+      item.iconPath = new vscode.ThemeIcon(b.unfetched ? 'cloud-download' : 'cloud');
       item.description = b.description;
       item.contextValue = 'remoteBranch';
       item.branchName = b.name;
+      item.unfetched = !!b.unfetched;
       return item;
     });
   }
 
   async _getBranchHistoryItems(cwd, parentItem) {
+    if (parentItem.unfetched) {
+      try {
+        await ensureRemoteBranchFetched(cwd, parentItem.branchName);
+        parentItem.unfetched = false;
+      } catch (err) {
+        vscode.window.showErrorMessage(t('failed', (err.stderr || err.message || String(err)).trim()));
+        return [];
+      }
+    }
     const commits = await getCommitLog(cwd, { branch: parentItem.branchName });
     return commits.map(c => {
       const item = new vscode.TreeItem(c.message, vscode.TreeItemCollapsibleState.Collapsed);
@@ -2556,7 +2751,9 @@ function activate(context) {
   // 커밋 메시지 WebviewView 등록
   const commitInputProvider = new CommitInputViewProvider(context.globalState);
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('gitQuickPickCommitInput', commitInputProvider)
+    vscode.window.registerWebviewViewProvider('gitQuickPickCommitInput', commitInputProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    })
   );
 
   // Sidebar TreeView 등록
@@ -2567,6 +2764,7 @@ function activate(context) {
     manageCheckboxStateManually: true,
   });
   context.subscriptions.push(treeView);
+
 
   // Ctrl+Enter / 웹뷰 커밋 버튼으로 커밋
   context.subscriptions.push(
@@ -2624,7 +2822,17 @@ function activate(context) {
   );
   context.subscriptions.push(
     treeView.onDidCollapseElement(e => {
-      treeProvider._expandedSections.delete(e.element.contextValue);
+      const ctx = e.element.contextValue;
+      treeProvider._expandedSections.delete(ctx);
+      // 원격 섹션을 접으면 재펼침 시 fetch + ls-remote 재시도 (인증 취소/실패 후 재시도 경로)
+      if (ctx === 'remoteBranchSection') {
+        treeProvider._remoteFetchRequested = true;
+        treeProvider._remoteBranchCache = null;
+      }
+      // 개별 미페치 원격 브랜치를 접으면 빈 자식 캐시 무효화 → 재펼침 시 ensureRemoteBranchFetched 재실행
+      if (ctx === 'remoteBranch' && e.element.unfetched) {
+        treeProvider.refresh(e.element);
+      }
     })
   );
 
@@ -2793,3 +3001,7 @@ function deactivate() {
 }
 
 module.exports = { activate, deactivate };
+
+// Test-only internals — i18n 테스트용. 순수 헬퍼는 lib/git-helpers.js에서 직접 import.
+// 런타임 의존하지 말 것
+module.exports._internals = { t };

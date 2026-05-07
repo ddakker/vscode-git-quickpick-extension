@@ -259,6 +259,7 @@
   },
   "license": "Apache-2.0",
   "scripts": {
-    "vscode:prepublish": "node -e \"require('fs').writeFileSync('build-info.json', JSON.stringify({ buildTime: new Date().toISOString() }))\""
+    "vscode:prepublish": "node -e \"require('fs').writeFileSync('build-info.json', JSON.stringify({ buildTime: new Date().toISOString() }))\"",
+    "test": "node tests/run.js"
   }
 }
