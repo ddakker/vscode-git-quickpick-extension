@@ -261,6 +261,12 @@ code --install-extension git-reflow-0.9.0.vsix
 
 또는 VS Code에서: Extensions (Ctrl+Shift+X) → ... → Install from VSIX
 
+## Contact
+- Email: ddakker@gmail.com, ddakker@naver.com
+
+## MS Logging
+- Service Request SIR23555772
+
 ## 라이센스
 
 Apache-2.0
