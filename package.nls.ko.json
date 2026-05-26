@@ -23,6 +23,7 @@
   "command.execSoftReset": "소프트 리셋",
   "command.execHardReset": "하드 리셋",
   "command.copyHash": "해시 복사",
+  "command.copyMessage": "메시지 복사",
   "command.viewDiff": "diff 보기",
   "command.resetToHere": "여기로 리셋",
   "command.execSwitch": "브랜치 전환",
@@ -36,5 +37,7 @@
   "command.createBranch": "브랜치 생성",
   "command.execInteractiveRebase": "여기서부터 커밋 합치기",
   "command.execAmendMessage": "커밋 메시지 수정",
-  "command.jumpToSource": "소스로 이동"
+  "command.jumpToSource": "소스로 이동",
+  "command.copyPath": "경로 복사",
+  "command.copyRelativePath": "상대 경로 복사"
 }

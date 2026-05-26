@@ -152,10 +152,12 @@ const messages = {
   // ─── History ───────────────────────────────────────────
   historyTitle:       ['히스토리', 'History'],
   copyHash:           ['📋 해시 복사', '📋 Copy hash'],
+  copyMessage:        ['📋 메시지 복사', '📋 Copy message'],
   viewDiff:           ['📄 diff 보기', '📄 View diff'],
   cherryPickAction:   ['🍒 체리픽', '🍒 Cherry pick'],
   resetToHere:        ['⏪ 여기로 리셋', '⏪ Reset to here'],
   hashCopied:         ['해시가 클립보드에 복사되었습니다: {0}', 'Hash copied to clipboard: {0}'],
+  messageCopied:      ['메시지가 클립보드에 복사되었습니다.', 'Commit message copied to clipboard.'],
   selectFile:         ['파일을 선택하세요', 'Select a file'],
   noDiffFiles:        ['변경된 파일이 없습니다.', 'No changed files in this commit.'],
   selectHistoryAction: ['작업을 선택하세요', 'Select an action'],
@@ -430,14 +432,14 @@ async function getRemoteBranches(cwd) {
   const { stdout } = await execGitSilent([
     'for-each-ref',
     '--sort=-committerdate',
-    '--format=%(refname:short)%09%(subject)%09%(committerdate:relative)',
+    '--format=%(refname:short)%09%(subject)%09%(committerdate:relative)%09%(symref)',
     'refs/remotes/',
   ], cwd);
   const tracked = new Map();
   if (stdout.trim()) {
     for (const line of stdout.trim().split('\n')) {
-      if (line.includes('->')) continue; // origin/HEAD 심볼릭 제외
-      const [name, subject, relTime] = line.split('\t');
+      const [name, subject, relTime, symref] = line.split('\t');
+      if (symref) continue; // origin/HEAD 등 심볼릭 ref 제외
       tracked.set(name, { name, description: `${subject} (${relTime})` });
     }
   }
@@ -480,6 +482,16 @@ async function ensureRemoteBranchFetched(cwd, branchName) {
     { location: vscode.ProgressLocation.Notification, title: t('fetchingBranch', branchName) },
     () => execGit(['fetch', remote, name], cwd, { timeout: 60000 })
   );
+}
+
+// 로컬에 해당 이름의 브랜치가 존재하는지 확인
+async function localBranchExists(cwd, name) {
+  try {
+    await execGitSilent(['rev-parse', '--verify', `refs/heads/${name}`], cwd);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function isDetachedHead(cwd) {
@@ -1046,6 +1058,8 @@ class GitContentProvider {
   }
 
   async provideTextDocumentContent(uri) {
+    // gitreflow://empty/...  → 삭제된 파일 diff의 우측(빈 문서)용
+    if (uri.authority === 'empty') return '';
     const [hash, ...pathParts] = uri.path.substring(1).split('/');
     const filePath = pathParts.join('/');
     const query = new URLSearchParams(uri.query);
@@ -1474,21 +1488,21 @@ async function execSwitch(item) {
     }
   }
 
+  // 원격 브랜치: 같은 이름의 로컬 브랜치가 이미 있으면 새로 만들지 않고 전환만 한다
+  const createLocal = isRemote && !(await localBranchExists(cwd, targetName));
+
   const doSwitch = async (force) => {
-    if (isRemote) {
-      const args = ['switch', '-c', targetName, branchName];
-      if (force) args.splice(1, 0, '--force');
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: t('executing', `git switch ${force ? '--force ' : ''}-c ${targetName} ${branchName}`) },
-        () => execGit(args, cwd)
-      );
+    const args = ['switch'];
+    if (force) args.push('--force');
+    if (createLocal) {
+      args.push('-c', targetName, branchName);
     } else {
-      const args = force ? ['switch', '--force', branchName] : ['switch', branchName];
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: t('executing', `git switch ${force ? '--force ' : ''}${branchName}`) },
-        () => execGit(args, cwd)
-      );
+      args.push(targetName);
     }
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: t('executing', `git ${args.join(' ')}`) },
+      () => execGit(args, cwd)
+    );
     vscode.window.showInformationMessage(t('switchSuccess', targetName));
   };
 
@@ -1641,6 +1655,21 @@ async function copyHash(item) {
   vscode.window.showInformationMessage(t('hashCopied', item.commitHash.substring(0, 8)));
 }
 
+async function copyCommitMessage(itemOrHash) {
+  const cwd = getWorkspaceCwd();
+  if (!cwd) return;
+  const hash = typeof itemOrHash === 'string' ? itemOrHash : itemOrHash && itemOrHash.commitHash;
+  if (!hash) return;
+  try {
+    const { stdout } = await execGit(['show', '-s', '--format=%B', hash], cwd);
+    await vscode.env.clipboard.writeText(stdout.replace(/\s+$/, ''));
+    vscode.window.showInformationMessage(t('messageCopied'));
+  } catch (err) {
+    const msg = err.stderr || err.message || String(err);
+    vscode.window.showErrorMessage(t('failed', msg.trim()));
+  }
+}
+
 async function openCommitFileDiff(hash, filePath, cwd) {
   try {
     const parentRef = `${hash}~1`;
@@ -1652,6 +1681,24 @@ async function openCommitFileDiff(hash, filePath, cwd) {
     );
     const title = `${filePath} (${hash.substring(0, 8)})`;
     await vscode.commands.executeCommand('vscode.diff', beforeUri, afterUri, title);
+  } catch (err) {
+    const msg = err.stderr || err.message || String(err);
+    vscode.window.showErrorMessage(t('failed', msg.trim()));
+  }
+}
+
+async function openDeletedFileDiff(filePath) {
+  const cwd = getWorkspaceCwd();
+  if (!cwd) return;
+  try {
+    const headUri = vscode.Uri.parse(
+      `gitreflow://show/HEAD/${filePath}?cwd=${encodeURIComponent(cwd)}`
+    );
+    const emptyUri = vscode.Uri.parse(
+      `gitreflow://empty/${filePath}?cwd=${encodeURIComponent(cwd)}`
+    );
+    const title = `${filePath} (Deleted)`;
+    await vscode.commands.executeCommand('vscode.diff', headUri, emptyUri, title);
   } catch (err) {
     const msg = err.stderr || err.message || String(err);
     vscode.window.showErrorMessage(t('failed', msg.trim()));
@@ -2281,6 +2328,7 @@ async function showHistory() {
 
   const actionItems = [
     { label: t('copyHash'), value: 'copy' },
+    { label: t('copyMessage'), value: 'copyMessage' },
     { label: t('viewDiff'), value: 'diff' },
     { label: t('cherryPickAction'), value: 'cherry-pick' },
     { label: t('resetToHere'), value: 'reset' },
@@ -2291,6 +2339,11 @@ async function showHistory() {
   if (action.value === 'copy') {
     await vscode.env.clipboard.writeText(commit.hash);
     vscode.window.showInformationMessage(t('hashCopied', commit.hash.substring(0, 8)));
+    return;
+  }
+
+  if (action.value === 'copyMessage') {
+    await copyCommitMessage(commit.hash);
     return;
   }
 
@@ -2551,9 +2604,12 @@ class GitQuickPickTreeProvider {
     if (f.statusCode === 'M') {
       item.command = { command: 'gitReflow.dblClick', title: 'Diff',
         arguments: ['gitReflow.openFileDiff', fileUri] };
-    } else if (f.statusCode === 'A') {
+    } else if (f.statusCode === 'A' || f.statusCode === '?') {
       item.command = { command: 'gitReflow.dblClick', title: 'Open',
         arguments: ['vscode.open', fileUri] };
+    } else if (f.statusCode === 'D') {
+      item.command = { command: 'gitReflow.dblClick', title: 'Diff',
+        arguments: ['gitReflow.openDeletedFileDiff', f.filePath] };
     }
 
     const isChecked = this._checkedFiles.get(f.filePath) ?? false;
@@ -2955,6 +3011,7 @@ function activate(context) {
     'gitReflow.execHardReset': withRefresh((item) => execReset(item, '--hard')),
     'gitReflow.execSwitch': withRefresh((item) => execSwitch(item)),
     'gitReflow.openFileDiff': (fileUri) => openFileDiff(fileUri),
+    'gitReflow.openDeletedFileDiff': (filePath) => openDeletedFileDiff(filePath),
     'gitReflow.openCommitFileDiff': (hash, filePath, cwd) => openCommitFileDiff(hash, filePath, cwd),
     'gitReflow.jumpToSource': (item) => {
       if (!item) return;
@@ -2967,11 +3024,22 @@ function activate(context) {
       const uri = vscode.Uri.file(absPath);
       vscode.window.showTextDocument(uri, { preview: false });
     },
+    'gitReflow.copyPath': (item) => {
+      if (!item || !item.filePath) return;
+      const cwd = getWorkspaceCwd();
+      if (!cwd) return;
+      vscode.env.clipboard.writeText(path.join(cwd, item.filePath));
+    },
+    'gitReflow.copyRelativePath': (item) => {
+      if (!item || !item.filePath) return;
+      vscode.env.clipboard.writeText(path.normalize(item.filePath));
+    },
     'gitReflow.execInteractiveRebase': withRefresh((item) => execSquashCommits(item, commitInputProvider)),
     'gitReflow.execAmendMessage': withRefresh((item) => execAmendMessage(item, commitInputProvider)),
     'gitReflow.abortOperation': withRefresh(() => abortOperation()),
     'gitReflow.continueOperation': withRefresh(() => continueOperation()),
     'gitReflow.copyHash': (item) => copyHash(item),
+    'gitReflow.copyMessage': (item) => copyCommitMessage(item),
     'gitReflow.viewDiff': (item) => viewDiff(item),
     'gitReflow.resetToHere': withRefresh((item) => resetToHere(item)),
     'gitReflow.createBranch': withRefresh(() => createBranch()),

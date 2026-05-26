@@ -23,6 +23,7 @@
   "command.execSoftReset": "Soft Reset",
   "command.execHardReset": "Hard Reset",
   "command.copyHash": "Copy Hash",
+  "command.copyMessage": "Copy Message",
   "command.viewDiff": "View Diff",
   "command.resetToHere": "Reset to here",
   "command.execSwitch": "Switch Branch",
@@ -36,5 +37,7 @@
   "command.createBranch": "Create Branch",
   "command.execInteractiveRebase": "Squash Commits from Here",
   "command.execAmendMessage": "Edit Commit Message",
-  "command.jumpToSource": "Jump to Source"
+  "command.jumpToSource": "Jump to Source",
+  "command.copyPath": "Copy Path",
+  "command.copyRelativePath": "Copy Relative Path"
 }
