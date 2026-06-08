@@ -2,7 +2,7 @@
   "name": "git-reflow",
   "displayName": "Git QuickPick",
   "description": "%extension.description%",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "publisher": "ddakker",
   "engines": {
     "vscode": "^1.74.0"
@@ -36,6 +36,16 @@
         }
       ]
     },
+    "configuration": {
+      "title": "Git QuickPick",
+      "properties": {
+        "gitReflow.backupBeforeRebase": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.backupBeforeRebase%"
+        }
+      }
+    },
     "commands": [
       { "command": "gitReflow.rebasemergeLocal", "title": "%command.rebasemergeLocal%", "icon": "$(git-merge)" },
       { "command": "gitReflow.rebasemergeRemote", "title": "%command.rebasemergeRemote%", "icon": "$(cloud-download)" },
@@ -68,11 +78,16 @@
       { "command": "gitReflow.createBranch", "title": "%command.createBranch%", "icon": "$(add)" },
       { "command": "gitReflow.execBranchPull", "title": "%command.execBranchPull%", "icon": "$(cloud-download)" },
       { "command": "gitReflow.execForceBranchPull", "title": "%command.execForceBranchPull%", "icon": "$(warning)" },
+      { "command": "gitReflow.execDeleteBranch", "title": "%command.execDeleteBranch%", "icon": "$(trash)" },
+      { "command": "gitReflow.execDeleteRemoteBranch", "title": "%command.execDeleteRemoteBranch%", "icon": "$(trash)" },
       { "command": "gitReflow.execInteractiveRebase", "title": "%command.execInteractiveRebase%", "icon": "$(edit)" },
       { "command": "gitReflow.execAmendMessage", "title": "%command.execAmendMessage%", "icon": "$(edit)" },
       { "command": "gitReflow.jumpToSource", "title": "%command.jumpToSource%", "icon": "$(go-to-file)" },
+      { "command": "gitReflow.openCommitFileVsLocal", "title": "%command.openCommitFileVsLocal%", "icon": "$(compare-changes)" },
       { "command": "gitReflow.copyPath", "title": "%command.copyPath%" },
-      { "command": "gitReflow.copyRelativePath", "title": "%command.copyRelativePath%" }
+      { "command": "gitReflow.copyRelativePath", "title": "%command.copyRelativePath%" },
+      { "command": "gitReflow.addToGitignore", "title": "%command.addToGitignore%", "icon": "$(eye-closed)" },
+      { "command": "gitReflow.addForce", "title": "%command.addForce%", "icon": "$(add)" }
     ],
     "menus": {
       "view/title": [
@@ -129,6 +144,11 @@
           "group": "inline@3"
         },
         {
+          "command": "gitReflow.addToGitignore",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
+          "group": "8_gitignore@1"
+        },
+        {
           "command": "gitReflow.jumpToSource",
           "when": "view == gitQuickPickView && viewItem == fileModified",
           "group": "inline@1"
@@ -162,6 +182,11 @@
           "command": "gitReflow.jumpToSource",
           "when": "view == gitQuickPickView && viewItem == historyFile",
           "group": "inline@1"
+        },
+        {
+          "command": "gitReflow.openCommitFileVsLocal",
+          "when": "view == gitQuickPickView && viewItem == historyFile",
+          "group": "1_actions@1"
         },
         {
           "command": "gitReflow.copyPath",
@@ -229,6 +254,11 @@
           "group": "2_merge@2"
         },
         {
+          "command": "gitReflow.execDeleteBranch",
+          "when": "view == gitQuickPickView && viewItem == localBranch",
+          "group": "9_danger@1"
+        },
+        {
           "command": "gitReflow.execSwitch",
           "when": "view == gitQuickPickView && viewItem == remoteBranch",
           "group": "1_actions@1"
@@ -242,6 +272,11 @@
           "command": "gitReflow.execMerge",
           "when": "view == gitQuickPickView && viewItem == remoteBranch",
           "group": "1_actions@3"
+        },
+        {
+          "command": "gitReflow.execDeleteRemoteBranch",
+          "when": "view == gitQuickPickView && viewItem == remoteBranch",
+          "group": "9_danger@1"
         },
         {
           "command": "gitReflow.copyHash",
@@ -272,6 +307,13 @@
           "command": "gitReflow.createBranch",
           "when": "view == gitQuickPickView && viewItem == localBranchSection",
           "group": "1_actions@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "gitReflow.addForce",
+          "when": "resourceScheme == file",
+          "group": "7_modification@100"
         }
       ]
     }

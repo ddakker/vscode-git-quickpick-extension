@@ -17,6 +17,7 @@ const {
   parseAuthTargetFromError,
   isConflict,
   formatCommitDate,
+  buildRebaseBackupName,
 } = require('./lib/git-helpers');
 
 // ─── Output Channel ────────────────────────────────────────────────
@@ -74,6 +75,18 @@ const messages = {
     '{0} 브랜치가 분기되었습니다. checkout 후 수동으로 pull하세요.',
     'Branch {0} has diverged. Checkout and pull manually.'
   ],
+  backupCreated: [
+    '복구용 백업 브랜치 생성: {0}',
+    'Backup branch created: {0}'
+  ],
+  backupFailed: [
+    '백업 브랜치 생성 실패: {0} (rebase는 계속 진행합니다)',
+    'Failed to create backup branch: {0} (continuing rebase)'
+  ],
+  rebaseBackupNote: [
+    '\n\nrebase 전 복구용 백업 브랜치(backup/...)가 자동 생성됩니다.',
+    '\n\nA backup branch (backup/...) is created automatically before rebasing.'
+  ],
   confirmRebase:    ['{0}을(를) {1} 위에 리베이스합니까?', 'Rebase {0} onto {1}?'],
   confirmMerge:     ['{1}을(를) {0}에 머지합니까?', 'Merge {1} into {0}?'],
   rebaseOnto:       ['Rebase onto {0}', 'Rebase onto {0}'],
@@ -122,10 +135,25 @@ const messages = {
   pushSuccess:        ['{0} 브랜치 푸시 완료', 'Pushed branch {0}'],
   forcePushConfirm:   ['{0} 브랜치를 Force Push합니까? 원격 히스토리가 덮어씌워집니다.', 'Force push {0}? This will overwrite remote history.'],
   detachedHeadPush:   ['Detached HEAD 상태입니다. push를 실행할 수 없습니다.', 'Cannot push in detached HEAD state.'],
+  checkingRemote:     ['원격 변경사항 확인 중...', 'Checking remote changes...'],
+  remoteHasCommits:   [
+    '원격에 로컬에 없는 커밋 {0}개가 있습니다.\n취소하고 rebase(onto) 하시겠습니까?',
+    'The remote has {0} commit(s) not in your local branch.\nCancel and rebase (onto)?'
+  ],
+  remoteHasCommitsDetail: [
+    '현재 브랜치의 커밋들을 원격(upstream) 위로 재배치합니다.',
+    'Replays your commits on top of the remote (upstream).'
+  ],
+  cancelAndRebase:    ['취소하고 rebase(onto)', 'Cancel & rebase (onto)'],
+  rebaseThenPush:     ['rebase(onto) 완료 후 push', 'Rebase (onto) then push'],
   // ─── Commit ────────────────────────────────────────────
   selectFiles:        ['커밋할 파일을 선택하세요', 'Select files to commit'],
   newMessage:         ['✏️ 새 메시지 입력', '✏️ Enter new message'],
   noChanges:          ['변경된 파일이 없습니다.', 'No changed files.'],
+  fileNotInWorkspace: [
+    '{0} 파일이 현재 작업 폴더에 없습니다(삭제됨). 변경 내용은 diff로 확인하세요.',
+    '{0} no longer exists in the workspace (deleted). View its changes via diff.'
+  ],
   commitSuccess:      ['커밋 완료: {0}', 'Committed: {0}'],
   enterCommitMsg:     ['커밋 메시지를 입력하세요', 'Enter commit message'],
   selectCommitMsg:    ['커밋 메시지를 선택하세요', 'Select commit message'],
@@ -153,7 +181,12 @@ const messages = {
   historyTitle:       ['히스토리', 'History'],
   copyHash:           ['📋 해시 복사', '📋 Copy hash'],
   copyMessage:        ['📋 메시지 복사', '📋 Copy message'],
+  tipDate:            ['날짜', 'Date'],
+  tipAuthor:          ['작성자', 'Author'],
+  tipHash:            ['해시', 'Hash'],
+  tipMessage:         ['메시지', 'Message'],
   viewDiff:           ['📄 diff 보기', '📄 View diff'],
+  local:              ['로컬', 'Local'],
   cherryPickAction:   ['🍒 체리픽', '🍒 Cherry pick'],
   resetToHere:        ['⏪ 여기로 리셋', '⏪ Reset to here'],
   hashCopied:         ['해시가 클립보드에 복사되었습니다: {0}', 'Hash copied to clipboard: {0}'],
@@ -170,11 +203,44 @@ const messages = {
   switchSuccess:      ['{0} 브랜치로 전환 완료', 'Switched to branch {0}'],
   enterBranchName:    ['새 브랜치 이름을 입력하세요', 'Enter new branch name'],
   branchCreated:      ['브랜치 생성 완료: {0}', 'Branch created: {0}'],
+  // ─── Branch delete ─────────────────────────────────────
+  delete:             ['삭제', 'Delete'],
+  forceDelete:        ['강제 삭제', 'Force delete'],
+  confirmDeleteBranch: ['{0} 브랜치를 삭제합니까?', 'Delete branch {0}?'],
+  deleteBranchDetail: [
+    '로컬 브랜치를 삭제합니다. 머지되지 않은 커밋이 있으면 삭제되지 않습니다.',
+    'Deletes the local branch. It will not be deleted if it has unmerged commits.'
+  ],
+  confirmForceDeleteBranch: [
+    '{0} 브랜치가 머지되지 않았습니다. 강제로 삭제합니까?',
+    'Branch {0} is not fully merged. Force delete?'
+  ],
+  forceDeleteBranchDetail: [
+    '머지되지 않은 커밋이 영구적으로 사라질 수 있습니다.',
+    'Unmerged commits may be permanently lost.'
+  ],
+  confirmDeleteRemoteBranch: ['원격 브랜치 {0}을(를) 삭제합니까?', 'Delete remote branch {0}?'],
+  deleteRemoteBranchDetail: [
+    '원격 저장소에서 브랜치가 삭제됩니다. 되돌리기 어렵습니다.',
+    'The branch will be removed from the remote. This is hard to undo.'
+  ],
+  confirmDeleteRemoteBranch2: [
+    '정말로 원격 브랜치 {0}을(를) 삭제하시겠습니까?',
+    'Are you absolutely sure you want to delete remote branch {0}?'
+  ],
+  deleteRemoteBranchDetail2: [
+    '이 작업은 되돌릴 수 없습니다.',
+    'This action cannot be undone.'
+  ],
+  deleteBranchSuccess: ['{0} 브랜치를 삭제했습니다.', 'Deleted branch {0}.'],
   // ─── Credentials ───────────────────────────────────────
   authUsername:       ['{0} 사용자 이름', 'Username for {0}'],
   authPassword:       ['{0}@{1} 비밀번호', 'Password for {0}@{1}'],
   authRequired:       ['{0} 인증이 필요합니다', 'Authentication required for {0}'],
   authCancelled:      ['인증이 취소되었습니다.', 'Authentication cancelled.'],
+  // ─── .gitignore ────────────────────────────────────────
+  gitignoreAdded:     ['{0} 항목을 .gitignore에 추가했습니다.', 'Added {0} to .gitignore.'],
+  gitignoreAlready:   ['{0} 항목은 이미 .gitignore에 있습니다.', '{0} is already in .gitignore.'],
 };
 
 function t(key, ...args) {
@@ -324,7 +390,8 @@ async function execGit(args, cwd, options = {}) {
   const cmdStr = `git ${args.join(' ')}`;
   if (outputChannel && !_silent) {
     outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] $ ${cmdStr}`);
-    outputChannel.show(true); // 출력 패널 자동 표시 (포커스 안 뺏김)
+    // 출력 패널 자동 표시는 하지 않음 — 하단에 열어둔 터미널이 멋대로 출력 로그로 전환되는 것 방지
+    // (로그는 계속 기록되므로 필요하면 "출력" 패널에서 직접 확인 가능)
   }
   try {
     const result = await execFileAsync('git', args, {
@@ -377,8 +444,19 @@ async function isGitRepo(cwd) {
 }
 
 async function getCurrentBranch(cwd) {
-  const { stdout } = await execGitSilent(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
-  return stdout.trim();
+  // branch --show-current 는 커밋이 하나도 없는(unborn) 저장소에서도 정상 동작한다.
+  // rev-parse --abbrev-ref HEAD 는 커밋이 없으면 exit 128 로 실패해 _fetchStatus 가
+  // catch 로 빠지면서 _checkedFiles 를 비워버린다(Select All 이 동작하지 않는 원인).
+  const { stdout } = await execGitSilent(['branch', '--show-current'], cwd);
+  const branch = stdout.trim();
+  if (branch) return branch;
+  // detached HEAD 에서는 --show-current 가 빈 문자열을 반환하므로 기존 방식으로 보완
+  try {
+    const { stdout: rev } = await execGitSilent(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+    return rev.trim();
+  } catch {
+    return '';
+  }
 }
 
 async function getLocalBranches(cwd) {
@@ -549,6 +627,15 @@ async function getChangedFiles(cwd) {
   return files;
 }
 
+// 파일 상태 코드를 파일 목록에 표시할 한 글자로 변환
+// M(수정)→U(Update), A/?(신규)→A(Add), D(삭제)→D(Delete), 그 외는 원본 코드
+function fileStatusLetter(statusCode) {
+  if (statusCode === 'M') return 'U';
+  if (statusCode === 'A' || statusCode === '?') return 'A';
+  if (statusCode === 'D') return 'D';
+  return statusCode;
+}
+
 // ─── Validation ─────────────────────────────────────────────────────
 
 async function validateGitWorkspace() {
@@ -617,6 +704,16 @@ async function getCommitLog(cwd, options = {}) {
   } catch {
     return [];
   }
+}
+
+// 커밋 항목 툴팁 — 날짜 / 작성자 / 해시 / 메시지 순
+function buildCommitTooltip(c) {
+  return [
+    `${t('tipDate')}: ${c.date}`,
+    `${t('tipAuthor')}: ${c.author}`,
+    `${t('tipHash')}: ${c.hash}`,
+    `${t('tipMessage')}: ${c.message}`,
+  ].join('\n');
 }
 
 async function showCommitPicker(cwd, options = {}) {
@@ -1263,16 +1360,29 @@ async function execPush(force) {
   if (force) {
     const confirm = await vscode.window.showWarningMessage(
       t('forcePushConfirm', currentBranch),
-      { modal: true }, t('yes'), t('cancel')
+      { modal: true }, t('yes')
     );
     if (confirm !== t('yes')) return;
   }
 
+  await performPush(cwd, currentBranch, force);
+}
+
+// upstream 유무 확인 → 일반 push면 원격 새 커밋 확인 → push 실행 (execPush/pushBranch 공통)
+async function performPush(cwd, currentBranch, force) {
   let hasUpstream = true;
   try {
     await execGitSilent(['rev-parse', '--abbrev-ref', `${currentBranch}@{upstream}`], cwd);
   } catch {
     hasUpstream = false;
+  }
+
+  // 일반 push이고 upstream이 있으면, 원격에 로컬에 없는 커밋이 있는지 확인 후 rebase 선택지 제공
+  if (!force && hasUpstream) {
+    const decision = await checkRemoteBeforePush(cwd, currentBranch);
+    if (decision === 'cancel') return;       // 사용자가 취소
+    if (decision === 'rebase-only') return;  // rebase만 하고 push 안 함
+    // 'push' | 'rebase-push' 는 아래에서 push 진행
   }
 
   const pushArgs = ['push'];
@@ -1288,6 +1398,69 @@ async function execPush(force) {
   } catch (err) {
     const msg = err.stderr || err.message || String(err);
     vscode.window.showErrorMessage(t('failed', msg.trim()));
+  }
+}
+
+// 원격(upstream)에 로컬에 없는 커밋이 있으면 rebase 선택 모달을 띄운다.
+// 반환: 'push'(그냥 진행) | 'rebase-push'(rebase 후 push) | 'rebase-only'(rebase만) | 'cancel'
+async function checkRemoteBeforePush(cwd, currentBranch) {
+  // 최신 원격 상태 확인을 위해 fetch (실패하면 확인 불가 → 그냥 push 진행)
+  try {
+    const { stdout: remote } = await execGitSilent(['config', `branch.${currentBranch}.remote`], cwd);
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: t('checkingRemote') },
+      () => execGit(['fetch', remote.trim()], cwd, { timeout: 30000 })
+    );
+  } catch {
+    return 'push';
+  }
+
+  let behind = 0;
+  try {
+    const { stdout } = await execGitSilent(['rev-list', '--count', 'HEAD..@{upstream}'], cwd);
+    behind = parseInt(stdout.trim(), 10) || 0;
+  } catch {
+    return 'push';
+  }
+  if (behind === 0) return 'push';
+
+  const rebaseOnly = t('cancelAndRebase');
+  const rebasePush = t('rebaseThenPush');
+  const choice = await vscode.window.showWarningMessage(
+    t('remoteHasCommits', behind),
+    { modal: true, detail: t('remoteHasCommitsDetail') + rebaseBackupNote('rebase') },
+    rebaseOnly, rebasePush
+  );
+
+  if (choice === rebaseOnly) {
+    await rebaseOntoUpstream(cwd, currentBranch);
+    return 'rebase-only';
+  }
+  if (choice === rebasePush) {
+    const ok = await rebaseOntoUpstream(cwd, currentBranch);
+    return ok ? 'rebase-push' : 'cancel'; // rebase 충돌/실패 시 push 안 함
+  }
+  return 'cancel';
+}
+
+// 현재 브랜치를 upstream 위로 rebase. 성공하면 true, 충돌/실패면 false.
+async function rebaseOntoUpstream(cwd, currentBranch) {
+  const inProgress = await hasInProgressOperation(cwd);
+  if (inProgress === 'rebase') { vscode.window.showWarningMessage(t('inProgressRebase')); return false; }
+  if (inProgress === 'merge') { vscode.window.showWarningMessage(t('inProgressMerge')); return false; }
+
+  await createRebaseBackupIfEnabled(cwd, currentBranch);
+
+  try {
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: t('executing', 'git rebase @{upstream}') },
+      () => execGit(['rebase', '@{upstream}'], cwd)
+    );
+    vscode.window.showInformationMessage(t('success', 'git rebase'));
+    return true;
+  } catch (err) {
+    await handleGitError(err, 'rebase', cwd);
+    return false;
   }
 }
 
@@ -1313,7 +1486,8 @@ async function execCommit(treeProvider, commitInputProvider) {
     } catch {
       // initial commit: no HEAD yet
     }
-    await execGit(['add', '--', ...checkedFiles], cwd);
+    // 사용자가 -f로 강제 추가한 ignore 파일도 다시 스테이징되도록 --force 사용
+    await execGit(['add', '--force', '--', ...checkedFiles], cwd);
     await execGit(['commit', '-m', commitMessage], cwd);
     vscode.window.showInformationMessage(t('commitSuccess', commitMessage));
     commitInputProvider.addHistory(commitMessage);
@@ -1413,10 +1587,106 @@ async function execForceBranchPull(item) {
   }
 }
 
+async function execDeleteBranch(item) {
+  const cwd = await validateGitWorkspace();
+  if (!cwd) return;
+
+  const branchName = item.branchName;
+  const confirm = await vscode.window.showWarningMessage(
+    t('confirmDeleteBranch', branchName),
+    { modal: true, detail: t('deleteBranchDetail') },
+    t('delete')
+  );
+  if (confirm !== t('delete')) return;
+
+  try {
+    await execGit(['branch', '-d', branchName], cwd);
+    vscode.window.showInformationMessage(t('deleteBranchSuccess', branchName));
+  } catch (err) {
+    const msg = (err.stderr || err.message || String(err)).trim();
+    // 머지되지 않은 브랜치 → 강제 삭제 여부 재확인
+    if (/not fully merged/i.test(msg)) {
+      const force = await vscode.window.showWarningMessage(
+        t('confirmForceDeleteBranch', branchName),
+        { modal: true, detail: t('forceDeleteBranchDetail') },
+        t('forceDelete')
+      );
+      if (force !== t('forceDelete')) return;
+      try {
+        await execGit(['branch', '-D', branchName], cwd);
+        vscode.window.showInformationMessage(t('deleteBranchSuccess', branchName));
+      } catch (err2) {
+        vscode.window.showErrorMessage(t('failed', (err2.stderr || err2.message || String(err2)).trim()));
+      }
+    } else {
+      vscode.window.showErrorMessage(t('failed', msg));
+    }
+  }
+}
+
+async function execDeleteRemoteBranch(item) {
+  const cwd = await validateGitWorkspace();
+  if (!cwd) return;
+
+  const branchName = item.branchName; // 예: origin/feature
+  const slash = branchName.indexOf('/');
+  if (slash < 0) return;
+  const remote = branchName.substring(0, slash);
+  const name = branchName.substring(slash + 1);
+
+  // 원격은 실수 방지를 위해 두 번 확인
+  const confirm1 = await vscode.window.showWarningMessage(
+    t('confirmDeleteRemoteBranch', branchName),
+    { modal: true, detail: t('deleteRemoteBranchDetail') },
+    t('delete')
+  );
+  if (confirm1 !== t('delete')) return;
+
+  const confirm2 = await vscode.window.showWarningMessage(
+    t('confirmDeleteRemoteBranch2', branchName),
+    { modal: true, detail: t('deleteRemoteBranchDetail2') },
+    t('delete')
+  );
+  if (confirm2 !== t('delete')) return;
+
+  try {
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification,
+        title: t('executing', `git push ${remote} --delete ${name}`) },
+      () => execGit(['push', remote, '--delete', name], cwd)
+    );
+    vscode.window.showInformationMessage(t('deleteBranchSuccess', branchName));
+  } catch (err) {
+    vscode.window.showErrorMessage(t('failed', (err.stderr || err.message || String(err)).trim()));
+  }
+}
+
 async function execStageFile(item) {
   const cwd = await validateGitWorkspace();
   if (!cwd) return;
   await execGit(['add', '--', item.filePath], cwd);
+}
+
+// 탐색기 우클릭 → .gitignore로 제외된 파일도 강제로 add (다중 선택 지원)
+async function execForceAdd(uri, uris) {
+  const cwd = await validateGitWorkspace();
+  if (!cwd) return;
+
+  const targets = (uris && uris.length ? uris : (uri ? [uri] : []))
+    .filter((u) => u && u.fsPath);
+  if (targets.length === 0) return;
+
+  const relPaths = targets.map((u) => path.relative(cwd, u.fsPath));
+  const names = relPaths.map((p) => path.basename(p)).join(', ');
+
+  try {
+    await execGit(['add', '--force', '--', ...relPaths], cwd);
+    vscode.window.showInformationMessage(
+      isKo ? `강제 추가 완료: ${names}` : `Force added: ${names}`
+    );
+  } catch (err) {
+    vscode.window.showErrorMessage(t('failed', (err.stderr || err.message || String(err)).trim()));
+  }
 }
 
 async function execRollbackFile(item) {
@@ -1426,7 +1696,7 @@ async function execRollbackFile(item) {
   const fileName = path.basename(item.filePath);
   const confirm = await vscode.window.showWarningMessage(
     isKo ? `${fileName} 변경을 되돌립니까?` : `Discard changes in ${fileName}?`,
-    { modal: true }, t('yes'), t('cancel')
+    { modal: true }, t('yes')
   );
   if (confirm !== t('yes')) return;
   await execGit(['checkout', 'HEAD', '--', item.filePath], cwd);
@@ -1439,7 +1709,7 @@ async function execDeleteFile(item) {
   const fileName = path.basename(item.filePath);
   const confirm = await vscode.window.showWarningMessage(
     isKo ? `${fileName} 파일을 삭제합니까?` : `Delete ${fileName}?`,
-    { modal: true }, t('yes'), t('cancel')
+    { modal: true }, t('yes')
   );
   if (confirm !== t('yes')) return;
 
@@ -1449,6 +1719,32 @@ async function execDeleteFile(item) {
   } catch {
     await execGit(['rm', '-f', '--', item.filePath], cwd);
   }
+}
+
+async function execAddToGitignore(item) {
+  const cwd = await validateGitWorkspace();
+  if (!cwd) return;
+
+  // gitignore는 슬래시 경로를 쓴다
+  const entry = item.filePath.replace(/\\/g, '/');
+  const gitignorePath = path.join(cwd, '.gitignore');
+
+  let content = '';
+  try {
+    content = fs.readFileSync(gitignorePath, 'utf8');
+  } catch {
+    content = '';
+  }
+
+  const lines = content.split(/\r?\n/).map(l => l.trim());
+  if (lines.includes(entry) || lines.includes(item.filePath)) {
+    vscode.window.showInformationMessage(t('gitignoreAlready', item.filePath));
+    return;
+  }
+
+  const prefix = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
+  fs.appendFileSync(gitignorePath, prefix + entry + '\n');
+  vscode.window.showInformationMessage(t('gitignoreAdded', item.filePath));
 }
 
 async function createBranch() {
@@ -1532,6 +1828,30 @@ async function execSwitch(item) {
   }
 }
 
+function isRebaseBackupEnabled() {
+  return vscode.workspace.getConfiguration('gitReflow').get('backupBeforeRebase', true);
+}
+
+// rebase 확인 모달에 붙일 백업 안내 문구 (설정 꺼져 있으면 빈 문자열)
+function rebaseBackupNote(action) {
+  if (action !== 'rebase' || !isRebaseBackupEnabled()) return '';
+  return t('rebaseBackupNote');
+}
+
+// rebase 직전 복구용 백업 브랜치 생성. 설정이 꺼져 있으면 아무것도 안 함.
+// 백업 실패는 rebase를 막지 않고 경고만 표시 (git ORIG_HEAD 가 fallback).
+async function createRebaseBackupIfEnabled(cwd, currentBranch) {
+  if (!isRebaseBackupEnabled()) return;
+  const backupName = buildRebaseBackupName(currentBranch);
+  try {
+    await execGit(['branch', backupName, 'HEAD'], cwd, { _silent: true });
+    vscode.window.showInformationMessage(t('backupCreated', backupName));
+  } catch (err) {
+    const msg = (err.stderr || err.message || String(err)).trim();
+    vscode.window.showWarningMessage(t('backupFailed', msg));
+  }
+}
+
 async function execRebaseMerge(item, action) {
   const cwd = await validateGitWorkspace();
   if (!cwd) return;
@@ -1577,7 +1897,7 @@ async function execRebaseMerge(item, action) {
     ? t('rebaseOnto', selectedBranch)
     : t('mergeInto', currentBranch);
   const confirm = await vscode.window.showWarningMessage(
-    confirmMsg, { modal: true, detail }, actionLabel, t('cancel')
+    confirmMsg, { modal: true, detail: detail + rebaseBackupNote(action) }, actionLabel
   );
   if (confirm !== actionLabel) return;
 
@@ -1585,6 +1905,10 @@ async function execRebaseMerge(item, action) {
     ? ['rebase', selectedBranch]
     : ['merge', '--no-edit', selectedBranch];
   const gitCmd = `git ${gitArgs.join(' ')}`;
+
+  if (action === 'rebase') {
+    await createRebaseBackupIfEnabled(cwd, currentBranch);
+  }
 
   try {
     await vscode.window.withProgress(
@@ -1636,7 +1960,7 @@ async function execReset(item, mode) {
   if (mode === '--hard') {
     const confirm = await vscode.window.showWarningMessage(
       t('confirmHardReset', hash.substring(0, 8)),
-      { modal: true }, t('yes'), t('cancel')
+      { modal: true }, t('yes')
     );
     if (confirm !== t('yes')) return;
   }
@@ -1681,6 +2005,21 @@ async function openCommitFileDiff(hash, filePath, cwd) {
     );
     const title = `${filePath} (${hash.substring(0, 8)})`;
     await vscode.commands.executeCommand('vscode.diff', beforeUri, afterUri, title);
+  } catch (err) {
+    const msg = err.stderr || err.message || String(err);
+    vscode.window.showErrorMessage(t('failed', msg.trim()));
+  }
+}
+
+// 커밋 시점의 파일 내용을 현재 로컬 작업 파일과 비교
+async function openCommitFileVsLocal(hash, filePath, cwd) {
+  try {
+    const commitUri = vscode.Uri.parse(
+      `gitreflow://show/${hash}/${filePath}?cwd=${encodeURIComponent(cwd)}`
+    );
+    const workingUri = vscode.Uri.file(path.join(cwd, filePath));
+    const title = `${filePath} (${hash.substring(0, 8)} ↔ ${t('local')})`;
+    await vscode.commands.executeCommand('vscode.diff', commitUri, workingUri, title);
   } catch (err) {
     const msg = err.stderr || err.message || String(err);
     vscode.window.showErrorMessage(t('failed', msg.trim()));
@@ -1778,7 +2117,7 @@ async function abortOperation() {
     : t('abortMerge');
 
   const confirm = await vscode.window.showWarningMessage(
-    label + '?', { modal: true }, t('yes'), t('cancel')
+    label + '?', { modal: true }, t('yes')
   );
   if (confirm !== t('yes')) return;
 
@@ -2024,7 +2363,7 @@ async function resetToHere(item) {
   if (modeChoice.value === '--hard') {
     const confirm = await vscode.window.showWarningMessage(
       t('confirmHardReset', hash.substring(0, 8)),
-      { modal: true }, t('yes'), t('cancel')
+      { modal: true }, t('yes')
     );
     if (confirm !== t('yes')) return;
   }
@@ -2095,7 +2434,7 @@ async function rebaseMerge(remote) {
     ? t('rebaseOnto', selectedBranch)
     : t('mergeInto', currentBranch);
   const confirm = await vscode.window.showWarningMessage(
-    confirmMsg, { modal: true, detail }, actionLabel, t('cancel')
+    confirmMsg, { modal: true, detail: detail + rebaseBackupNote(action) }, actionLabel
   );
   if (confirm !== actionLabel) return;
 
@@ -2103,6 +2442,10 @@ async function rebaseMerge(remote) {
     ? ['rebase', selectedBranch]
     : ['merge', '--no-edit', selectedBranch];
   const gitCmd = `git ${gitArgs.join(' ')}`;
+
+  if (action === 'rebase') {
+    await createRebaseBackupIfEnabled(cwd, currentBranch);
+  }
 
   try {
     await vscode.window.withProgress(
@@ -2182,32 +2525,15 @@ async function pushBranch() {
   const pushAction = await vscode.window.showQuickPick(pushItems, { placeHolder: t('selectAction') });
   if (!pushAction) return;
 
-  if (pushAction.value === 'force') {
+  const force = pushAction.value === 'force';
+  if (force) {
     const confirm = await vscode.window.showWarningMessage(
-      t('forcePushConfirm', currentBranch), { modal: true }, t('yes'), t('cancel')
+      t('forcePushConfirm', currentBranch), { modal: true }, t('yes')
     );
     if (confirm !== t('yes')) return;
   }
 
-  let hasUpstream = true;
-  try {
-    await execGitSilent(['rev-parse', '--abbrev-ref', `${currentBranch}@{upstream}`], cwd);
-  } catch { hasUpstream = false; }
-
-  const pushArgs = ['push'];
-  if (pushAction.value === 'force') pushArgs.push('--force');
-  if (!hasUpstream) pushArgs.push('--set-upstream', 'origin', currentBranch);
-
-  try {
-    await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: t('executing', `git ${pushArgs.join(' ')}`) },
-      () => execGit(pushArgs, cwd)
-    );
-    vscode.window.showInformationMessage(t('pushSuccess', currentBranch));
-  } catch (err) {
-    const msg = err.stderr || err.message || String(err);
-    vscode.window.showErrorMessage(t('failed', msg.trim()));
-  }
+  await performPush(cwd, currentBranch, force);
 }
 
 async function commitChanges() {
@@ -2250,7 +2576,8 @@ async function commitChanges() {
 
   try {
     try { await execGit(['reset', 'HEAD'], cwd); } catch { /* initial commit */ }
-    await execGit(['add', '--', ...selected.map(s => s.filePath)], cwd);
+    // -f로 강제 추가한 ignore 파일도 다시 스테이징되도록 --force 사용
+    await execGit(['add', '--force', '--', ...selected.map(s => s.filePath)], cwd);
     await execGit(['commit', '-m', commitMessage], cwd);
     vscode.window.showInformationMessage(t('commitSuccess', commitMessage));
   } catch (err) {
@@ -2275,7 +2602,7 @@ async function resetCommit() {
 
   if (modeChoice.value === '--hard') {
     const confirm = await vscode.window.showWarningMessage(
-      t('confirmHardReset', commit.hash.substring(0, 8)), { modal: true }, t('yes'), t('cancel')
+      t('confirmHardReset', commit.hash.substring(0, 8)), { modal: true }, t('yes')
     );
     if (confirm !== t('yes')) return;
   }
@@ -2397,7 +2724,7 @@ async function showHistory() {
 
     if (modeChoice.value === '--hard') {
       const confirm = await vscode.window.showWarningMessage(
-        t('confirmHardReset', commit.hash.substring(0, 8)), { modal: true }, t('yes'), t('cancel')
+        t('confirmHardReset', commit.hash.substring(0, 8)), { modal: true }, t('yes')
       );
       if (confirm !== t('yes')) return;
     }
@@ -2685,6 +3012,7 @@ class GitQuickPickTreeProvider {
     return commits.map((c, i) => {
       const item = new vscode.TreeItem(c.message, vscode.TreeItemCollapsibleState.Collapsed);
       item.description = `${c.author}  ${c.date}  ${c.hash.substring(0, 7)}`;
+      item.tooltip = buildCommitTooltip(c);
       item.iconPath = new vscode.ThemeIcon('git-commit');
       item.contextValue = i === 0 ? 'historyCommitLatest' : 'historyCommit';
       item.commitHash = c.hash;
@@ -2695,19 +3023,27 @@ class GitQuickPickTreeProvider {
   async _getCommitFileItems(cwd, element) {
     const hash = element.commitHash;
     try {
+      // --name-status: 각 파일의 변경 종류(A/M/D)를 함께 가져와 U/D/A로 표시
+      // --no-renames: 이름변경을 D+A로 분리해 상태 글자 매핑을 단순화
       const { stdout } = await execGit(
-        ['diff-tree', '--no-commit-id', '-r', '--name-only', hash], cwd
+        ['diff-tree', '--no-commit-id', '-r', '--no-renames', '--name-status', hash], cwd
       );
-      const files = stdout.trim().split('\n').filter(Boolean);
-      return files.map(f => {
+      const lines = stdout.trim().split('\n').filter(Boolean);
+      return lines.map(line => {
+        const parts = line.split('\t');
+        const statusCode = parts[0][0];          // 'M' | 'A' | 'D' 등
+        const f = parts.slice(1).join('\t');     // 파일 경로
+        const letter = fileStatusLetter(statusCode);
+        const dir = path.dirname(f);
         const item = new vscode.TreeItem(
           path.basename(f),
           vscode.TreeItemCollapsibleState.None
         );
-        item.description = path.dirname(f) === '.' ? '' : path.dirname(f);
+        item.description = dir === '.' ? letter : `${letter}  ${dir}`;
         item.iconPath = vscode.ThemeIcon.File;
         item.contextValue = 'historyFile';
         item.tooltip = f;
+        item.commitHash = hash;
         item.command = { command: 'gitReflow.dblClick', title: 'Diff',
           arguments: ['gitReflow.openCommitFileDiff', hash, f, cwd] };
         return item;
@@ -2776,6 +3112,7 @@ class GitQuickPickTreeProvider {
     return commits.map(c => {
       const item = new vscode.TreeItem(c.message, vscode.TreeItemCollapsibleState.Collapsed);
       item.description = `${c.author}  ${c.date}  ${c.hash.substring(0, 7)}`;
+      item.tooltip = buildCommitTooltip(c);
       item.iconPath = new vscode.ThemeIcon('git-commit');
       item.contextValue = 'branchHistoryCommit';
       item.commitHash = c.hash;
@@ -2995,6 +3332,8 @@ function activate(context) {
     'gitReflow.stageFile': withRefresh((item) => execStageFile(item)),
     'gitReflow.rollbackFile': withRefresh((item) => execRollbackFile(item)),
     'gitReflow.deleteFile': withRefresh((item) => execDeleteFile(item)),
+    'gitReflow.addToGitignore': withRefresh((item) => execAddToGitignore(item)),
+    'gitReflow.addForce': withRefresh((uri, uris) => execForceAdd(uri, uris)),
     // 타이틀 바 명령
     'gitReflow.execPush': withRefresh(() => execPush(false)),
     'gitReflow.execForcePush': withRefresh(() => execPush(true)),
@@ -3013,6 +3352,12 @@ function activate(context) {
     'gitReflow.openFileDiff': (fileUri) => openFileDiff(fileUri),
     'gitReflow.openDeletedFileDiff': (filePath) => openDeletedFileDiff(filePath),
     'gitReflow.openCommitFileDiff': (hash, filePath, cwd) => openCommitFileDiff(hash, filePath, cwd),
+    'gitReflow.openCommitFileVsLocal': (item) => {
+      if (!item) return;
+      const cwd = getWorkspaceCwd();
+      if (!cwd || !item.commitHash || !item.tooltip) return;
+      openCommitFileVsLocal(item.commitHash, item.tooltip, cwd);
+    },
     'gitReflow.jumpToSource': (item) => {
       if (!item) return;
       const cwd = getWorkspaceCwd();
@@ -3021,6 +3366,11 @@ function activate(context) {
       const relativePath = item.filePath || item.tooltip;
       if (!relativePath) return;
       const absPath = path.join(cwd, relativePath);
+      // 삭제됐거나 워킹트리에 없는 파일은 열 수 없으므로 안내만 한다(조용한 실패 방지)
+      if (!fs.existsSync(absPath)) {
+        vscode.window.showInformationMessage(t('fileNotInWorkspace', relativePath));
+        return;
+      }
       const uri = vscode.Uri.file(absPath);
       vscode.window.showTextDocument(uri, { preview: false });
     },
@@ -3045,6 +3395,8 @@ function activate(context) {
     'gitReflow.createBranch': withRefresh(() => createBranch()),
     'gitReflow.execBranchPull': withRefresh((item) => execBranchPull(item)),
     'gitReflow.execForceBranchPull': withRefresh((item) => execForceBranchPull(item)),
+    'gitReflow.execDeleteBranch': withRefresh((item) => execDeleteBranch(item)),
+    'gitReflow.execDeleteRemoteBranch': withRefresh((item) => execDeleteRemoteBranch(item)),
     // Command Palette 명령 (하위 호환)
     'gitReflow.rebasemergeLocal': withRefresh(() => rebaseMerge(false)),
     'gitReflow.rebasemergeRemote': withRefresh(() => rebaseMerge(true)),
@@ -3072,4 +3424,4 @@ module.exports = { activate, deactivate };
 
 // Test-only internals — i18n 테스트용. 순수 헬퍼는 lib/git-helpers.js에서 직접 import.
 // 런타임 의존하지 말 것
-module.exports._internals = { t };
+module.exports._internals = { t, getCurrentBranch, fileStatusLetter };

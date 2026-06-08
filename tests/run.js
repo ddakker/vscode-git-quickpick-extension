@@ -15,3 +15,5 @@
 
 require('./git-helpers.test');
 require('./i18n.test');
+require('./get-current-branch.test');
+require('./file-status-letter.test');

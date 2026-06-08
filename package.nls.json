@@ -3,6 +3,7 @@
   "view.name": "Git QuickPick",
   "view.commitInput": "Message Input",
   "view.workspace": "Workspace",
+  "config.backupBeforeRebase": "Create a recovery backup branch (backup/<branch>/<timestamp>) before 'Rebase onto'.",
   "command.refresh": "Refresh",
   "command.rebasemergeLocal": "Git QuickPick: Rebase/Merge Local Branch",
   "command.rebasemergeRemote": "Git QuickPick: Rebase/Merge Remote Branch",
@@ -29,6 +30,8 @@
   "command.execSwitch": "Switch Branch",
   "command.execBranchPull": "Pull from Remote",
   "command.execForceBranchPull": "Force Pull from Remote",
+  "command.execDeleteBranch": "Delete Branch",
+  "command.execDeleteRemoteBranch": "Delete Remote Branch",
   "command.toggleFileView": "Toggle File/Tree View",
   "command.stageFile": "Stage File",
   "command.rollbackFile": "Rollback",
@@ -38,6 +41,9 @@
   "command.execInteractiveRebase": "Squash Commits from Here",
   "command.execAmendMessage": "Edit Commit Message",
   "command.jumpToSource": "Jump to Source",
+  "command.openCommitFileVsLocal": "Compare with Local",
   "command.copyPath": "Copy Path",
-  "command.copyRelativePath": "Copy Relative Path"
+  "command.copyRelativePath": "Copy Relative Path",
+  "command.addToGitignore": "Add to .gitignore",
+  "command.addForce": "Git Add (Force)"
 }

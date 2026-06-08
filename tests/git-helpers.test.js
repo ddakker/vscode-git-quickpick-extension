@@ -15,6 +15,8 @@ const {
   parseAuthTargetFromError,
   isConflict,
   formatCommitDate,
+  formatBackupTimestamp,
+  buildRebaseBackupName,
 } = require('../lib/git-helpers');
 
 // ─── isAuthError ──────────────────────────────────────────────────
@@ -288,5 +290,31 @@ describe('formatCommitDate', () => {
 
   test('pads single-digit month/day/hour/minute', () => {
     assert.match(formatCommitDate('2026-01-05T03:07:00'), /^2026-01-05 AM 03:07$/);
+  });
+});
+
+// ─── formatBackupTimestamp / buildRebaseBackupName ────────────────
+
+describe('formatBackupTimestamp', () => {
+  test('formats as YYYYMMDD-HHmmss', () => {
+    const d = new Date(2026, 5, 1, 15, 30, 5); // 2026-06-01 15:30:05 (local)
+    assert.equal(formatBackupTimestamp(d), '20260601-153005');
+  });
+
+  test('pads single-digit fields', () => {
+    const d = new Date(2026, 0, 5, 3, 7, 9); // 2026-01-05 03:07:09
+    assert.equal(formatBackupTimestamp(d), '20260105-030709');
+  });
+});
+
+describe('buildRebaseBackupName', () => {
+  test('builds backup/<branch>/<timestamp>', () => {
+    const d = new Date(2026, 5, 1, 15, 30, 5);
+    assert.equal(buildRebaseBackupName('feature-login', d), 'backup/feature-login/20260601-153005');
+  });
+
+  test('keeps slashes in branch name (nested refs)', () => {
+    const d = new Date(2026, 5, 1, 15, 30, 5);
+    assert.equal(buildRebaseBackupName('feature/login', d), 'backup/feature/login/20260601-153005');
   });
 });

@@ -3,6 +3,7 @@
   "view.name": "Git QuickPick",
   "view.commitInput": "메시지 입력",
   "view.workspace": "작업 공간",
+  "config.backupBeforeRebase": "'Rebase onto' 실행 전 복구용 백업 브랜치(backup/<브랜치>/<시간>)를 생성합니다.",
   "command.refresh": "새로고침",
   "command.rebasemergeLocal": "Git QuickPick: 로컬 브랜치 리베이스/머지",
   "command.rebasemergeRemote": "Git QuickPick: 원격 브랜치 리베이스/머지",
@@ -29,6 +30,8 @@
   "command.execSwitch": "브랜치 전환",
   "command.execBranchPull": "원격에서 풀",
   "command.execForceBranchPull": "원격에서 강제 풀",
+  "command.execDeleteBranch": "브랜치 삭제",
+  "command.execDeleteRemoteBranch": "원격 브랜치 삭제",
   "command.toggleFileView": "파일/트리 보기 전환",
   "command.stageFile": "스테이지에 추가",
   "command.rollbackFile": "변경 되돌리기",
@@ -38,6 +41,9 @@
   "command.execInteractiveRebase": "여기서부터 커밋 합치기",
   "command.execAmendMessage": "커밋 메시지 수정",
   "command.jumpToSource": "소스로 이동",
+  "command.openCommitFileVsLocal": "로컬과 비교하기",
   "command.copyPath": "경로 복사",
-  "command.copyRelativePath": "상대 경로 복사"
+  "command.copyRelativePath": "상대 경로 복사",
+  "command.addToGitignore": ".gitignore에 추가",
+  "command.addForce": "Git 강제 추가 (--force)"
 }
