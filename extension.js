@@ -2096,10 +2096,15 @@ async function execReset(item, mode) {
   }
 }
 
-async function copyHash(item) {
-  const shortHash = item.commitHash.substring(0, 8);
+// 커밋 해시를 8자 약식으로 클립보드에 복사하고 안내 메시지를 띄운다.
+async function copyShortHash(hash) {
+  const shortHash = hash.substring(0, 8);
   await vscode.env.clipboard.writeText(shortHash);
   vscode.window.showInformationMessage(t('hashCopied', shortHash));
+}
+
+async function copyHash(item) {
+  await copyShortHash(item.commitHash);
 }
 
 async function copyCommitMessage(itemOrHash) {
@@ -2787,9 +2792,7 @@ async function showHistory() {
   if (!action) return;
 
   if (action.value === 'copy') {
-    const shortHash = commit.hash.substring(0, 8);
-    await vscode.env.clipboard.writeText(shortHash);
-    vscode.window.showInformationMessage(t('hashCopied', shortHash));
+    await copyShortHash(commit.hash);
     return;
   }
 
@@ -3522,7 +3525,7 @@ function activate(context) {
     'gitReflow.execDeleteBranch': withRefresh((item) => execDeleteBranch(item)),
     'gitReflow.cleanupBackups': withRefresh(() => execCleanupBackups()),
     'gitReflow.openSettings': () =>
-      vscode.commands.executeCommand('workbench.action.openSettings', '@ext:ddakker.git-reflow'),
+      vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${context.extension.id}`),
     'gitReflow.execDeleteRemoteBranch': withRefresh((item) => execDeleteRemoteBranch(item)),
     // Command Palette 명령 (하위 호환)
     'gitReflow.rebasemergeLocal': withRefresh(() => rebaseMerge(false)),
