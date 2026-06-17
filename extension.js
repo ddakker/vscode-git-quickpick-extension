@@ -18,6 +18,7 @@ const {
   isConflict,
   formatCommitDate,
   buildRebaseBackupName,
+  selectStaleBackups,
 } = require('./lib/git-helpers');
 
 // ─── Output Channel ────────────────────────────────────────────────
@@ -82,6 +83,30 @@ const messages = {
   backupFailed: [
     '백업 브랜치 생성 실패: {0} (rebase는 계속 진행합니다)',
     'Failed to create backup branch: {0} (continuing rebase)'
+  ],
+  backupReused: [
+    '동일한 커밋의 백업 브랜치가 이미 있어 재사용합니다: {0}',
+    'Reusing existing backup branch at the same commit: {0}'
+  ],
+  cleanupBackupsNone: [
+    '정리할 오래된 백업 브랜치가 없습니다.',
+    'No old backup branches to clean up.'
+  ],
+  confirmCleanupBackups: [
+    '오래된 백업 브랜치 {0}개를 삭제합니다. 계속할까요?',
+    'Delete {0} old backup branch(es). Continue?'
+  ],
+  cleanupBackupsDetail: [
+    '삭제 대상:\n{0}',
+    'To be deleted:\n{0}'
+  ],
+  cleanupBackupsDone: [
+    '백업 브랜치 {0}개를 삭제했습니다.',
+    'Deleted {0} backup branch(es).'
+  ],
+  cleanupBackupsPartial: [
+    '백업 브랜치 {0}개 삭제, {1}개 실패.',
+    'Deleted {0} backup branch(es), {1} failed.'
   ],
   rebaseBackupNote: [
     '\n\nrebase 전 복구용 백업 브랜치(backup/...)가 자동 생성됩니다.',
@@ -800,7 +825,7 @@ async function updateInlineBlame(editor) {
     const dateStr = authorTime
       ? formatRelativeDate(parseInt(authorTime, 10))
       : '';
-    const shortHash = hash.substring(0, 7);
+    const shortHash = hash.substring(0, 8);
     const text = `    ${author}, ${dateStr} • ${summary} (${shortHash})`;
 
     const lineIdx = line - 1;
@@ -1832,6 +1857,14 @@ function isRebaseBackupEnabled() {
   return vscode.workspace.getConfiguration('gitReflow').get('backupBeforeRebase', true);
 }
 
+// 백업 정리 설정 — 그룹별 최신 N개 유지 / N일 지난 것 삭제
+function getBackupMaxKeep() {
+  return vscode.workspace.getConfiguration('gitReflow').get('backupMaxKeep', 10);
+}
+function getBackupMaxAgeDays() {
+  return vscode.workspace.getConfiguration('gitReflow').get('backupMaxAgeDays', 30);
+}
+
 // rebase 확인 모달에 붙일 백업 안내 문구 (설정 꺼져 있으면 빈 문자열)
 function rebaseBackupNote(action) {
   if (action !== 'rebase' || !isRebaseBackupEnabled()) return '';
@@ -1842,6 +1875,14 @@ function rebaseBackupNote(action) {
 // 백업 실패는 rebase를 막지 않고 경고만 표시 (git ORIG_HEAD 가 fallback).
 async function createRebaseBackupIfEnabled(cwd, currentBranch) {
   if (!isRebaseBackupEnabled()) return;
+
+  // 현재 HEAD 커밋을 이미 가리키는 백업이 있으면 중복 생성하지 않고 재사용
+  const existing = await findBackupAtHead(cwd, currentBranch);
+  if (existing) {
+    vscode.window.showInformationMessage(t('backupReused', existing));
+    return;
+  }
+
   const backupName = buildRebaseBackupName(currentBranch);
   try {
     await execGit(['branch', backupName, 'HEAD'], cwd, { _silent: true });
@@ -1849,6 +1890,87 @@ async function createRebaseBackupIfEnabled(cwd, currentBranch) {
   } catch (err) {
     const msg = (err.stderr || err.message || String(err)).trim();
     vscode.window.showWarningMessage(t('backupFailed', msg));
+  }
+}
+
+// 현재 HEAD 커밋을 이미 가리키는 backup/<branch>/* 브랜치 이름을 반환 (없으면 null).
+// HEAD 조회나 목록 조회가 실패하면 null 을 돌려줘 새 백업을 만들도록 둔다.
+async function findBackupAtHead(cwd, currentBranch) {
+  let headSha;
+  try {
+    const { stdout } = await execGitSilent(['rev-parse', 'HEAD'], cwd);
+    headSha = stdout.trim();
+  } catch {
+    return null;
+  }
+  if (!headSha) return null;
+
+  try {
+    const { stdout } = await execGitSilent(
+      ['for-each-ref', '--format=%(objectname) %(refname:short)',
+        `refs/heads/backup/${currentBranch}`], cwd
+    );
+    for (const line of stdout.split('\n')) {
+      const idx = line.indexOf(' ');
+      if (idx === -1) continue;
+      if (line.slice(0, idx) === headSha) return line.slice(idx + 1).trim();
+    }
+  } catch {
+    // 목록 조회 실패는 무시 — 새 백업을 만들도록 둠
+  }
+  return null;
+}
+
+// 모든 backup/* 브랜치 이름 목록을 반환 (없으면 빈 배열)
+async function listBackupBranches(cwd) {
+  try {
+    const { stdout } = await execGitSilent(
+      ['for-each-ref', '--format=%(refname:short)', 'refs/heads/backup'], cwd
+    );
+    return stdout.split('\n').map(s => s.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// 오래된 백업 브랜치 정리 (수동 명령). 설정 기준으로 삭제 대상을 계산해 확인 후 삭제.
+async function execCleanupBackups() {
+  const cwd = await validateGitWorkspace();
+  if (!cwd) return;
+
+  const names = await listBackupBranches(cwd);
+  const stale = selectStaleBackups(names, {
+    maxKeep: getBackupMaxKeep(),
+    maxAgeDays: getBackupMaxAgeDays(),
+  });
+
+  if (stale.length === 0) {
+    vscode.window.showInformationMessage(t('cleanupBackupsNone'));
+    return;
+  }
+
+  const confirm = await vscode.window.showWarningMessage(
+    t('confirmCleanupBackups', stale.length),
+    { modal: true, detail: t('cleanupBackupsDetail', stale.join('\n')) },
+    t('delete')
+  );
+  if (confirm !== t('delete')) return;
+
+  let ok = 0;
+  let fail = 0;
+  for (const name of stale) {
+    try {
+      await execGit(['branch', '-D', name], cwd, { _silent: true });
+      ok++;
+    } catch {
+      fail++;
+    }
+  }
+
+  if (fail === 0) {
+    vscode.window.showInformationMessage(t('cleanupBackupsDone', ok));
+  } else {
+    vscode.window.showWarningMessage(t('cleanupBackupsPartial', ok, fail));
   }
 }
 
@@ -1975,8 +2097,9 @@ async function execReset(item, mode) {
 }
 
 async function copyHash(item) {
-  await vscode.env.clipboard.writeText(item.commitHash);
-  vscode.window.showInformationMessage(t('hashCopied', item.commitHash.substring(0, 8)));
+  const shortHash = item.commitHash.substring(0, 8);
+  await vscode.env.clipboard.writeText(shortHash);
+  vscode.window.showInformationMessage(t('hashCopied', shortHash));
 }
 
 async function copyCommitMessage(itemOrHash) {
@@ -2664,8 +2787,9 @@ async function showHistory() {
   if (!action) return;
 
   if (action.value === 'copy') {
-    await vscode.env.clipboard.writeText(commit.hash);
-    vscode.window.showInformationMessage(t('hashCopied', commit.hash.substring(0, 8)));
+    const shortHash = commit.hash.substring(0, 8);
+    await vscode.env.clipboard.writeText(shortHash);
+    vscode.window.showInformationMessage(t('hashCopied', shortHash));
     return;
   }
 
@@ -3011,7 +3135,7 @@ class GitQuickPickTreeProvider {
     const commits = await getCommitLog(cwd);
     return commits.map((c, i) => {
       const item = new vscode.TreeItem(c.message, vscode.TreeItemCollapsibleState.Collapsed);
-      item.description = `${c.author}  ${c.date}  ${c.hash.substring(0, 7)}`;
+      item.description = `${c.author}  ${c.date}  ${c.hash.substring(0, 8)}`;
       item.tooltip = buildCommitTooltip(c);
       item.iconPath = new vscode.ThemeIcon('git-commit');
       item.contextValue = i === 0 ? 'historyCommitLatest' : 'historyCommit';
@@ -3111,7 +3235,7 @@ class GitQuickPickTreeProvider {
     const commits = await getCommitLog(cwd, { branch: parentItem.branchName });
     return commits.map(c => {
       const item = new vscode.TreeItem(c.message, vscode.TreeItemCollapsibleState.Collapsed);
-      item.description = `${c.author}  ${c.date}  ${c.hash.substring(0, 7)}`;
+      item.description = `${c.author}  ${c.date}  ${c.hash.substring(0, 8)}`;
       item.tooltip = buildCommitTooltip(c);
       item.iconPath = new vscode.ThemeIcon('git-commit');
       item.contextValue = 'branchHistoryCommit';
@@ -3396,6 +3520,9 @@ function activate(context) {
     'gitReflow.execBranchPull': withRefresh((item) => execBranchPull(item)),
     'gitReflow.execForceBranchPull': withRefresh((item) => execForceBranchPull(item)),
     'gitReflow.execDeleteBranch': withRefresh((item) => execDeleteBranch(item)),
+    'gitReflow.cleanupBackups': withRefresh(() => execCleanupBackups()),
+    'gitReflow.openSettings': () =>
+      vscode.commands.executeCommand('workbench.action.openSettings', '@ext:ddakker.git-reflow'),
     'gitReflow.execDeleteRemoteBranch': withRefresh((item) => execDeleteRemoteBranch(item)),
     // Command Palette 명령 (하위 호환)
     'gitReflow.rebasemergeLocal': withRefresh(() => rebaseMerge(false)),

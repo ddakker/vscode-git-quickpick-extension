@@ -17,6 +17,9 @@ const {
   formatCommitDate,
   formatBackupTimestamp,
   buildRebaseBackupName,
+  parseBackupTimestamp,
+  backupGroupKey,
+  selectStaleBackups,
 } = require('../lib/git-helpers');
 
 // ─── isAuthError ──────────────────────────────────────────────────
@@ -316,5 +319,96 @@ describe('buildRebaseBackupName', () => {
   test('keeps slashes in branch name (nested refs)', () => {
     const d = new Date(2026, 5, 1, 15, 30, 5);
     assert.equal(buildRebaseBackupName('feature/login', d), 'backup/feature/login/20260601-153005');
+  });
+});
+
+// ─── parseBackupTimestamp / backupGroupKey ──────────────────────────
+describe('parseBackupTimestamp', () => {
+  test('parses trailing YYYYMMDD-HHmmss into a Date', () => {
+    const d = parseBackupTimestamp('backup/main/20260601-153005');
+    assert.deepEqual(d, new Date(2026, 5, 1, 15, 30, 5));
+  });
+
+  test('works with nested branch names', () => {
+    const d = parseBackupTimestamp('backup/feature/login/20260105-030709');
+    assert.deepEqual(d, new Date(2026, 0, 5, 3, 7, 9));
+  });
+
+  test('returns null when no timestamp suffix', () => {
+    assert.equal(parseBackupTimestamp('backup/main'), null);
+    assert.equal(parseBackupTimestamp('feature/login'), null);
+    assert.equal(parseBackupTimestamp(''), null);
+  });
+});
+
+describe('backupGroupKey', () => {
+  test('strips trailing timestamp', () => {
+    assert.equal(backupGroupKey('backup/main/20260601-153005'), 'backup/main');
+    assert.equal(backupGroupKey('backup/feature/login/20260105-030709'), 'backup/feature/login');
+  });
+
+  test('returns null when not a backup-with-timestamp name', () => {
+    assert.equal(backupGroupKey('backup/main'), null);
+  });
+});
+
+// ─── selectStaleBackups ─────────────────────────────────────────────
+describe('selectStaleBackups', () => {
+  const now = new Date(2026, 5, 15, 12, 0, 0); // 2026-06-15 12:00
+
+  test('keeps most-recent maxKeep per group, deletes the rest (no age limit)', () => {
+    const names = [
+      'backup/main/20260601-100000',
+      'backup/main/20260602-100000',
+      'backup/main/20260603-100000',
+    ];
+    const stale = selectStaleBackups(names, { maxKeep: 2, maxAgeDays: 0, now });
+    assert.deepEqual(stale, ['backup/main/20260601-100000']); // 가장 오래된 1개
+  });
+
+  test('counts each branch group independently', () => {
+    const names = [
+      'backup/main/20260601-100000',
+      'backup/main/20260602-100000',
+      'backup/feature/20260601-100000', // 그룹에 1개뿐 → cap=1 안에 들어 보존
+    ];
+    const stale = selectStaleBackups(names, { maxKeep: 1, maxAgeDays: 0, now });
+    assert.deepEqual(stale, ['backup/main/20260601-100000']);
+  });
+
+  test('age limit deletes old backups even within the keep count', () => {
+    const names = [
+      'backup/main/20260101-100000', // 오래됨 (30일 초과)
+      'backup/main/20260615-100000', // 최근
+    ];
+    // maxKeep=5 → 둘 다 개수 안엔 들지만, 오래된 건 기간 기준으로 삭제
+    const stale = selectStaleBackups(names, { maxKeep: 5, maxAgeDays: 30, now });
+    assert.deepEqual(stale, ['backup/main/20260101-100000']);
+  });
+
+  test('union of count and age (either condition deletes)', () => {
+    const names = [
+      'backup/main/20260615-100000', // 최근, 보존
+      'backup/main/20260610-100000', // 최근이지만 cap 초과
+      'backup/main/20260101-100000', // 오래됨 + cap 초과
+    ];
+    const stale = selectStaleBackups(names, { maxKeep: 1, maxAgeDays: 30, now });
+    assert.deepEqual(stale.sort(), ['backup/main/20260101-100000', 'backup/main/20260610-100000'].sort());
+  });
+
+  test('ignores names without a valid timestamp', () => {
+    const names = ['backup/main', 'feature/x', 'backup/main/20260101-100000'];
+    const stale = selectStaleBackups(names, { maxKeep: 0, maxAgeDays: 30, now });
+    assert.deepEqual(stale, ['backup/main/20260101-100000']);
+  });
+
+  test('no limits → nothing deleted', () => {
+    const names = ['backup/main/20200101-100000'];
+    assert.deepEqual(selectStaleBackups(names, { maxKeep: 0, maxAgeDays: 0, now }), []);
+  });
+
+  test('handles empty / nullish input', () => {
+    assert.deepEqual(selectStaleBackups([], { maxKeep: 1, now }), []);
+    assert.deepEqual(selectStaleBackups(undefined, { maxKeep: 1, now }), []);
   });
 });

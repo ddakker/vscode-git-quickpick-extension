@@ -43,6 +43,18 @@
           "type": "boolean",
           "default": true,
           "description": "%config.backupBeforeRebase%"
+        },
+        "gitReflow.backupMaxKeep": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "description": "%config.backupMaxKeep%"
+        },
+        "gitReflow.backupMaxAgeDays": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "description": "%config.backupMaxAgeDays%"
         }
       }
     },
@@ -79,6 +91,8 @@
       { "command": "gitReflow.execBranchPull", "title": "%command.execBranchPull%", "icon": "$(cloud-download)" },
       { "command": "gitReflow.execForceBranchPull", "title": "%command.execForceBranchPull%", "icon": "$(warning)" },
       { "command": "gitReflow.execDeleteBranch", "title": "%command.execDeleteBranch%", "icon": "$(trash)" },
+      { "command": "gitReflow.cleanupBackups", "title": "%command.cleanupBackups%", "icon": "$(trash)" },
+      { "command": "gitReflow.openSettings", "title": "%command.openSettings%", "icon": "$(gear)" },
       { "command": "gitReflow.execDeleteRemoteBranch", "title": "%command.execDeleteRemoteBranch%", "icon": "$(trash)" },
       { "command": "gitReflow.execInteractiveRebase", "title": "%command.execInteractiveRebase%", "icon": "$(edit)" },
       { "command": "gitReflow.execAmendMessage", "title": "%command.execAmendMessage%", "icon": "$(edit)" },
@@ -125,6 +139,16 @@
           "command": "gitReflow.execForcePush",
           "when": "view == gitQuickPickCommitInput",
           "group": "1_push"
+        },
+        {
+          "command": "gitReflow.cleanupBackups",
+          "when": "view == gitQuickPickCommitInput",
+          "group": "2_backup@1"
+        },
+        {
+          "command": "gitReflow.openSettings",
+          "when": "view == gitQuickPickCommitInput",
+          "group": "2_backup@2"
         }
       ],
       "view/item/context": [
@@ -142,6 +166,21 @@
           "command": "gitReflow.deleteFile",
           "when": "view == gitQuickPickView && viewItem == fileUntracked",
           "group": "inline@3"
+        },
+        {
+          "command": "gitReflow.jumpToSource",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
+          "group": "0_inline@1"
+        },
+        {
+          "command": "gitReflow.stageFile",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
+          "group": "0_inline@2"
+        },
+        {
+          "command": "gitReflow.deleteFile",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
+          "group": "0_inline@3"
         },
         {
           "command": "gitReflow.addToGitignore",
@@ -164,9 +203,29 @@
           "group": "inline@3"
         },
         {
+          "command": "gitReflow.jumpToSource",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
+          "group": "0_inline@1"
+        },
+        {
+          "command": "gitReflow.rollbackFile",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
+          "group": "0_inline@2"
+        },
+        {
+          "command": "gitReflow.deleteFile",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
+          "group": "0_inline@3"
+        },
+        {
           "command": "gitReflow.rollbackFile",
           "when": "view == gitQuickPickView && viewItem == fileDeleted",
           "group": "inline@1"
+        },
+        {
+          "command": "gitReflow.rollbackFile",
+          "when": "view == gitQuickPickView && viewItem == fileDeleted",
+          "group": "0_inline@1"
         },
         {
           "command": "gitReflow.jumpToSource",
@@ -180,8 +239,23 @@
         },
         {
           "command": "gitReflow.jumpToSource",
+          "when": "view == gitQuickPickView && viewItem == fileOther",
+          "group": "0_inline@1"
+        },
+        {
+          "command": "gitReflow.deleteFile",
+          "when": "view == gitQuickPickView && viewItem == fileOther",
+          "group": "0_inline@2"
+        },
+        {
+          "command": "gitReflow.jumpToSource",
           "when": "view == gitQuickPickView && viewItem == historyFile",
           "group": "inline@1"
+        },
+        {
+          "command": "gitReflow.jumpToSource",
+          "when": "view == gitQuickPickView && viewItem == historyFile",
+          "group": "0_inline@1"
         },
         {
           "command": "gitReflow.openCommitFileVsLocal",
