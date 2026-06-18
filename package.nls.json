@@ -49,5 +49,10 @@
   "command.copyPath": "Copy Path",
   "command.copyRelativePath": "Copy Relative Path",
   "command.addToGitignore": "Add to .gitignore",
-  "command.addForce": "Git Add (Force)"
+  "command.addForce": "Git Add (Force)",
+  "command.createStash": "Stash Changes",
+  "command.stash": "Git QuickPick: Stash Changes",
+  "command.stashPop": "Pop (restore & remove)",
+  "command.stashApply": "Apply (restore & keep)",
+  "command.stashDrop": "Drop Stash"
 }

@@ -20,6 +20,8 @@ const {
   parseBackupTimestamp,
   backupGroupKey,
   selectStaleBackups,
+  parseStashList,
+  parseNameStatus,
 } = require('../lib/git-helpers');
 
 // ─── isAuthError ──────────────────────────────────────────────────
@@ -410,5 +412,62 @@ describe('selectStaleBackups', () => {
   test('handles empty / nullish input', () => {
     assert.deepEqual(selectStaleBackups([], { maxKeep: 1, now }), []);
     assert.deepEqual(selectStaleBackups(undefined, { maxKeep: 1, now }), []);
+  });
+});
+
+// ─── parseStashList ───────────────────────────────────────────────
+
+describe('parseStashList', () => {
+  test('parses ref/message/relTime per line', () => {
+    const out = 'stash@{0}\tWIP on main: 1234 fix bug\t2 hours ago\n'
+      + 'stash@{1}\tOn feature: my stash\t3 days ago';
+    assert.deepEqual(parseStashList(out), [
+      { ref: 'stash@{0}', index: 0, message: 'WIP on main: 1234 fix bug', relTime: '2 hours ago' },
+      { ref: 'stash@{1}', index: 1, message: 'On feature: my stash', relTime: '3 days ago' },
+    ]);
+  });
+
+  test('empty / nullish input → []', () => {
+    assert.deepEqual(parseStashList(''), []);
+    assert.deepEqual(parseStashList('   '), []);
+    assert.deepEqual(parseStashList(undefined), []);
+  });
+
+  test('ignores lines without a valid stash ref', () => {
+    const out = 'garbage line\nstash@{0}\tmsg\tnow';
+    assert.deepEqual(parseStashList(out), [
+      { ref: 'stash@{0}', index: 0, message: 'msg', relTime: 'now' },
+    ]);
+  });
+
+  test('tolerates missing message / relTime columns', () => {
+    assert.deepEqual(parseStashList('stash@{2}'), [
+      { ref: 'stash@{2}', index: 2, message: '', relTime: '' },
+    ]);
+  });
+});
+
+// ─── parseNameStatus ──────────────────────────────────────────────
+
+describe('parseNameStatus', () => {
+  test('parses status letter + path per line', () => {
+    const out = 'M\tsrc/app.js\nA\tlib/new.js\nD\told.txt';
+    assert.deepEqual(parseNameStatus(out), [
+      { statusCode: 'M', filePath: 'src/app.js' },
+      { statusCode: 'A', filePath: 'lib/new.js' },
+      { statusCode: 'D', filePath: 'old.txt' },
+    ]);
+  });
+
+  test('empty / nullish input → []', () => {
+    assert.deepEqual(parseNameStatus(''), []);
+    assert.deepEqual(parseNameStatus('   '), []);
+    assert.deepEqual(parseNameStatus(undefined), []);
+  });
+
+  test('keeps only the first status char and preserves tabbed paths', () => {
+    assert.deepEqual(parseNameStatus('MM\tdir/with\ttab.js'), [
+      { statusCode: 'M', filePath: 'dir/with\ttab.js' },
+    ]);
   });
 });

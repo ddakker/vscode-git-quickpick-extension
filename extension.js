@@ -19,6 +19,8 @@ const {
   formatCommitDate,
   buildRebaseBackupName,
   selectStaleBackups,
+  parseStashList,
+  parseNameStatus,
 } = require('./lib/git-helpers');
 
 // ─── Output Channel ────────────────────────────────────────────────
@@ -224,6 +226,7 @@ const messages = {
   sectionHistory:     ['히스토리', 'History'],
   sectionLocalBranch: ['로컬 브랜치', 'Local Branches'],
   sectionRemoteBranch:['원격 브랜치', 'Remote Branches'],
+  sectionStash:       ['스태시', 'Stashes'],
   changes:            ['{0}개 변경', '{0} changes'],
   switchSuccess:      ['{0} 브랜치로 전환 완료', 'Switched to branch {0}'],
   enterBranchName:    ['새 브랜치 이름을 입력하세요', 'Enter new branch name'],
@@ -258,6 +261,25 @@ const messages = {
     'This action cannot be undone.'
   ],
   deleteBranchSuccess: ['{0} 브랜치를 삭제했습니다.', 'Deleted branch {0}.'],
+  // ─── Stash ─────────────────────────────────────────────
+  enterStashMessage:  ['스태시 메시지(선택)', 'Stash message (optional)'],
+  noChangesToStash:   ['저장할 변경 사항이 없습니다.', 'No local changes to stash.'],
+  stashCreated:       [
+    '변경 사항(untracked 포함)을 스태시에 저장했습니다.',
+    'Saved changes (including untracked files) to stash.'
+  ],
+  stashPopped:        ['스태시를 복구했습니다.', 'Restored stash.'],
+  stashApplied:       ['스태시를 적용했습니다.', 'Applied stash.'],
+  stashDropped:       ['스태시를 삭제했습니다.', 'Dropped stash.'],
+  stashPopConflict:   [
+    '스태시 복구 중 충돌이 발생했습니다. 스태시는 보존되었으니 충돌을 해결하세요.',
+    'Conflicts occurred while restoring the stash. The stash was kept — resolve the conflicts.'
+  ],
+  confirmDropStash:   ['스태시 {0}을(를) 삭제합니까?', 'Drop stash {0}?'],
+  dropStashDetail:    [
+    '저장된 변경 사항이 영구적으로 사라집니다. 되돌리기 어렵습니다.',
+    'The stashed changes will be permanently lost. This is hard to undo.'
+  ],
   // ─── Credentials ───────────────────────────────────────
   authUsername:       ['{0} 사용자 이름', 'Username for {0}'],
   authPassword:       ['{0}@{1} 비밀번호', 'Password for {0}@{1}'],
@@ -567,6 +589,31 @@ async function fetchAll(cwd) {
   await execGit(['fetch', '--all'], cwd, { timeout: 30000 });
 }
 
+// 스태시 목록 조회 — [{ ref, index, message, relTime }]
+async function getStashList(cwd) {
+  try {
+    const { stdout } = await execGitSilent(
+      ['stash', 'list', '--format=%gd%x09%s%x09%cr'], cwd
+    );
+    return parseStashList(stdout);
+  } catch {
+    return [];
+  }
+}
+
+// 한 스태시에 포함된 파일 목록 (commit 파일 표시와 동일한 형식)
+// --include-untracked: 스태시 생성 시 함께 저장한 untracked 파일도 목록에 포함
+async function getStashFiles(cwd, ref) {
+  try {
+    const { stdout } = await execGitSilent(
+      ['stash', 'show', '--include-untracked', '--no-renames', '--name-status', ref], cwd
+    );
+    return parseNameStatus(stdout);
+  } catch {
+    return [];
+  }
+}
+
 // 해당 원격 브랜치가 로컬에 추적되지 않았으면 네트워크에서 페치
 async function ensureRemoteBranchFetched(cwd, branchName) {
   try {
@@ -765,7 +812,7 @@ async function showCommitPicker(cwd, options = {}) {
 const blameDecorationType = vscode.window.createTextEditorDecorationType({
   after: {
     color: new vscode.ThemeColor('editorCodeLens.foreground'),
-    fontStyle: 'italic',
+    fontStyle: 'normal',
     margin: '0 0 0 3em',
   },
   rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
@@ -1974,6 +2021,76 @@ async function execCleanupBackups() {
   }
 }
 
+// ─── Stash ──────────────────────────────────────────────────────────
+
+// 현재 변경 사항을 스태시에 저장 (untracked 포함 → 워킹트리를 깨끗하게)
+async function execCreateStash() {
+  const cwd = await validateGitWorkspace();
+  if (!cwd) return;
+
+  const changes = await getChangedFiles(cwd);
+  if (changes.length === 0) {
+    vscode.window.showInformationMessage(t('noChangesToStash'));
+    return;
+  }
+
+  const message = await vscode.window.showInputBox({
+    prompt: t('enterStashMessage'),
+    placeHolder: t('enterStashMessage'),
+  });
+  if (message === undefined) return; // 취소
+
+  const args = ['stash', 'push', '--include-untracked'];
+  if (message.trim()) args.push('-m', message.trim());
+
+  try {
+    await execGit(args, cwd);
+    vscode.window.showInformationMessage(t('stashCreated'));
+  } catch (err) {
+    vscode.window.showErrorMessage(t('failed', (err.stderr || err.message || String(err)).trim()));
+  }
+}
+
+// 스태시 복구 (pop: 적용 후 삭제 / apply: 적용 후 보존)
+async function execStashRestore(item, keep) {
+  const cwd = await validateGitWorkspace();
+  if (!cwd || !item || !item.stashRef) return;
+
+  const sub = keep ? 'apply' : 'pop';
+  try {
+    await execGit(['stash', sub, item.stashRef], cwd);
+    vscode.window.showInformationMessage(keep ? t('stashApplied') : t('stashPopped'));
+  } catch (err) {
+    const msg = (err.stderr || err.message || String(err)).trim();
+    // 충돌 시 git 은 스태시를 보존한다 — 안내만 한다.
+    if (isConflict(msg)) {
+      vscode.window.showWarningMessage(t('stashPopConflict'));
+    } else {
+      vscode.window.showErrorMessage(t('failed', msg));
+    }
+  }
+}
+
+// 스태시 삭제 (확인 후)
+async function execStashDrop(item) {
+  const cwd = await validateGitWorkspace();
+  if (!cwd || !item || !item.stashRef) return;
+
+  const confirm = await vscode.window.showWarningMessage(
+    t('confirmDropStash', item.stashRef),
+    { modal: true, detail: t('dropStashDetail') },
+    t('delete')
+  );
+  if (confirm !== t('delete')) return;
+
+  try {
+    await execGit(['stash', 'drop', item.stashRef], cwd);
+    vscode.window.showInformationMessage(t('stashDropped'));
+  } catch (err) {
+    vscode.window.showErrorMessage(t('failed', (err.stderr || err.message || String(err)).trim()));
+  }
+}
+
 async function execRebaseMerge(item, action) {
   const cwd = await validateGitWorkspace();
   if (!cwd) return;
@@ -2955,6 +3072,8 @@ class GitQuickPickTreeProvider {
       case 'historyCommit': return this._getCommitFileItems(cwd, element);
       case 'localBranchSection': return this._getLocalBranchItems(cwd);
       case 'remoteBranchSection': return this._getRemoteBranchItems(cwd);
+      case 'stashSection': return this._getStashItems(cwd);
+      case 'stashEntry': return this._getStashFileItems(cwd, element);
       case 'localBranch':
       case 'localBranchCurrent': return this._getBranchHistoryItems(cwd, element);
       case 'remoteBranch': return this._getBranchHistoryItems(cwd, element);
@@ -3029,6 +3148,14 @@ class GitQuickPickTreeProvider {
     remoteItem.iconPath = new vscode.ThemeIcon('cloud');
     remoteItem.contextValue = 'remoteBranchSection';
     items.push(remoteItem);
+
+    // 스태시
+    const stashExpanded = this._expandedSections.has('stashSection');
+    const stashItem = new vscode.TreeItem(t('sectionStash'),
+      stashExpanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
+    stashItem.iconPath = new vscode.ThemeIcon('archive');
+    stashItem.contextValue = 'stashSection';
+    items.push(stashItem);
 
     return items;
   }
@@ -3155,11 +3282,7 @@ class GitQuickPickTreeProvider {
       const { stdout } = await execGit(
         ['diff-tree', '--no-commit-id', '-r', '--no-renames', '--name-status', hash], cwd
       );
-      const lines = stdout.trim().split('\n').filter(Boolean);
-      return lines.map(line => {
-        const parts = line.split('\t');
-        const statusCode = parts[0][0];          // 'M' | 'A' | 'D' 등
-        const f = parts.slice(1).join('\t');     // 파일 경로
+      return parseNameStatus(stdout).map(({ statusCode, filePath: f }) => {
         const letter = fileStatusLetter(statusCode);
         const dir = path.dirname(f);
         const item = new vscode.TreeItem(
@@ -3243,6 +3366,34 @@ class GitQuickPickTreeProvider {
       item.iconPath = new vscode.ThemeIcon('git-commit');
       item.contextValue = 'branchHistoryCommit';
       item.commitHash = c.hash;
+      return item;
+    });
+  }
+
+  async _getStashItems(cwd) {
+    const stashes = await getStashList(cwd);
+    return stashes.map(s => {
+      const item = new vscode.TreeItem(s.message, vscode.TreeItemCollapsibleState.Collapsed);
+      item.description = `${s.ref}  ${s.relTime}`;
+      item.tooltip = `${s.ref}\n${s.message}`;
+      item.iconPath = new vscode.ThemeIcon('archive');
+      item.contextValue = 'stashEntry';
+      item.stashRef = s.ref;
+      return item;
+    });
+  }
+
+  async _getStashFileItems(cwd, element) {
+    const files = await getStashFiles(cwd, element.stashRef);
+    return files.map(f => {
+      const letter = fileStatusLetter(f.statusCode);
+      const dir = path.dirname(f.filePath);
+      const item = new vscode.TreeItem(path.basename(f.filePath), vscode.TreeItemCollapsibleState.None);
+      item.description = dir === '.' ? letter : `${letter}  ${dir}`;
+      item.iconPath = vscode.ThemeIcon.File;
+      item.contextValue = 'stashFile';
+      item.tooltip = f.filePath;
+      item.filePath = f.filePath;
       return item;
     });
   }
@@ -3335,7 +3486,7 @@ function activate(context) {
       treeProvider._expandedSections.add(ctx);
       if (ctx === 'commitSection') {
         treeProvider.updateStatus();
-      } else if (['historySection', 'localBranchSection', 'remoteBranchSection'].includes(ctx)) {
+      } else if (['historySection', 'localBranchSection', 'remoteBranchSection', 'stashSection'].includes(ctx)) {
         treeProvider.refresh(e.element);
       }
     })
@@ -3524,6 +3675,10 @@ function activate(context) {
     'gitReflow.execForceBranchPull': withRefresh((item) => execForceBranchPull(item)),
     'gitReflow.execDeleteBranch': withRefresh((item) => execDeleteBranch(item)),
     'gitReflow.cleanupBackups': withRefresh(() => execCleanupBackups()),
+    'gitReflow.createStash': withRefresh(() => execCreateStash()),
+    'gitReflow.stashPop': withRefresh((item) => execStashRestore(item, false)),
+    'gitReflow.stashApply': withRefresh((item) => execStashRestore(item, true)),
+    'gitReflow.stashDrop': withRefresh((item) => execStashDrop(item)),
     'gitReflow.openSettings': () =>
       vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${context.extension.id}`),
     'gitReflow.execDeleteRemoteBranch': withRefresh((item) => execDeleteRemoteBranch(item)),
@@ -3536,6 +3691,7 @@ function activate(context) {
     'gitReflow.reset': withRefresh(resetCommit),
     'gitReflow.cherryPick': withRefresh(cherryPick),
     'gitReflow.history': withRefresh(showHistory),
+    'gitReflow.stash': withRefresh(() => execCreateStash()),
   };
 
   for (const [id, fn] of Object.entries(cmds)) {

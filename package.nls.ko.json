@@ -49,5 +49,10 @@
   "command.copyPath": "경로 복사",
   "command.copyRelativePath": "상대 경로 복사",
   "command.addToGitignore": ".gitignore에 추가",
-  "command.addForce": "Git 강제 추가 (--force)"
+  "command.addForce": "Git 강제 추가 (--force)",
+  "command.createStash": "변경 사항 스태시",
+  "command.stash": "Git QuickPick: 변경 사항 스태시",
+  "command.stashPop": "복구 후 삭제 (pop)",
+  "command.stashApply": "복구 후 보존 (apply)",
+  "command.stashDrop": "스태시 삭제"
 }
