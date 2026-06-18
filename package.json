@@ -2,7 +2,7 @@
   "name": "git-reflow",
   "displayName": "Git QuickPick",
   "description": "%extension.description%",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "publisher": "ddakker",
   "engines": {
     "vscode": "^1.74.0"
@@ -13,7 +13,7 @@
   "main": "./extension.js",
   "contributes": {
     "viewsContainers": {
-      "activitybar": [
+      "panel": [
         {
           "id": "gitQuickPickExplorer",
           "title": "Git QuickPick",

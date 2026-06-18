@@ -256,7 +256,7 @@ Before                               After
 ./package.sh
 
 # Install
-code --install-extension git-reflow-0.9.0.vsix
+code --install-extension git-reflow-0.9.4.vsix
 ```
 
 Or in VS Code: Extensions (Ctrl+Shift+X) → ... → Install from VSIX
