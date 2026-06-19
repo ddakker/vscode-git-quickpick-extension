@@ -97,6 +97,8 @@
       { "command": "gitReflow.execInteractiveRebase", "title": "%command.execInteractiveRebase%", "icon": "$(edit)" },
       { "command": "gitReflow.execAmendMessage", "title": "%command.execAmendMessage%", "icon": "$(edit)" },
       { "command": "gitReflow.jumpToSource", "title": "%command.jumpToSource%", "icon": "$(go-to-file)" },
+      { "command": "gitReflow.openConflictMergeEditor", "title": "%command.openConflictMergeEditor%", "icon": "$(git-merge)" },
+      { "command": "gitReflow.openConflictInEditor", "title": "%command.openConflictInEditor%", "icon": "$(go-to-file)" },
       { "command": "gitReflow.openCommitFileVsLocal", "title": "%command.openCommitFileVsLocal%", "icon": "$(compare-changes)" },
       { "command": "gitReflow.copyPath", "title": "%command.copyPath%" },
       { "command": "gitReflow.copyRelativePath", "title": "%command.copyRelativePath%" },
@@ -198,6 +200,26 @@
           "group": "8_gitignore@1"
         },
         {
+          "command": "gitReflow.openConflictMergeEditor",
+          "when": "view == gitQuickPickView && viewItem == fileConflict",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitReflow.openConflictInEditor",
+          "when": "view == gitQuickPickView && viewItem == fileConflict",
+          "group": "inline@2"
+        },
+        {
+          "command": "gitReflow.openConflictMergeEditor",
+          "when": "view == gitQuickPickView && viewItem == fileConflict",
+          "group": "0_inline@1"
+        },
+        {
+          "command": "gitReflow.openConflictInEditor",
+          "when": "view == gitQuickPickView && viewItem == fileConflict",
+          "group": "0_inline@2"
+        },
+        {
           "command": "gitReflow.jumpToSource",
           "when": "view == gitQuickPickView && viewItem == fileModified",
           "group": "inline@1"
@@ -274,12 +296,12 @@
         },
         {
           "command": "gitReflow.copyPath",
-          "when": "view == gitQuickPickView && viewItem =~ /^file(Untracked|Modified|Deleted|Other)$/",
+          "when": "view == gitQuickPickView && viewItem =~ /^file(Untracked|Modified|Deleted|Other|Conflict)$/",
           "group": "9_copy@1"
         },
         {
           "command": "gitReflow.copyRelativePath",
-          "when": "view == gitQuickPickView && viewItem =~ /^file(Untracked|Modified|Deleted|Other)$/",
+          "when": "view == gitQuickPickView && viewItem =~ /^file(Untracked|Modified|Deleted|Other|Conflict)$/",
           "group": "9_copy@2"
         },
         {

@@ -287,10 +287,12 @@ code --install-extension git-reflow-0.9.4.vsix
 
 ## Contact
 - Email: ddakker@gmail.com, ddakker@naver.com
-- ..
 
-## MS Logging
-- Service Request SIR23555772
+## 개발 및 테스트 환경
+
+- **Fedora Linux**: 주 개발·테스트 환경, 실무 상시 사용으로 가장 검증됨
+- **Windows**: 테스트 진행
+- **macOS**: 고려됨, 일부 지인이 실무에서 사용 중
 
 ## 라이센스
 

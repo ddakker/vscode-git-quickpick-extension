@@ -14,6 +14,7 @@ const {
   isAuthError,
   parseAuthTargetFromError,
   isConflict,
+  isUnmergedStatus,
   formatCommitDate,
   formatBackupTimestamp,
   buildRebaseBackupName,
@@ -269,6 +270,33 @@ describe('isConflict', () => {
     assert.equal(isConflict('fatal: not a git repository'), false);
     assert.equal(isConflict('fatal: Authentication failed'), false);
     assert.equal(isConflict(''), false);
+  });
+});
+
+// ─── isUnmergedStatus ─────────────────────────────────────────────
+// git status --porcelain의 두 상태 글자(index, work)로 충돌(unmerged) 판정
+
+describe('isUnmergedStatus', () => {
+  test('detects all 7 unmerged porcelain codes', () => {
+    // [index, work] 쌍: DD/AU/UD/UA/DU/AA/UU
+    const codes = [
+      ['D', 'D'], ['A', 'U'], ['U', 'D'],
+      ['U', 'A'], ['D', 'U'], ['A', 'A'], ['U', 'U'],
+    ];
+    for (const [x, y] of codes) {
+      assert.equal(isUnmergedStatus(x, y), true, `${x}${y} 는 충돌이어야 함`);
+    }
+  });
+
+  test('returns false for normal (non-conflict) statuses', () => {
+    // 정상 추가/수정/삭제/이름변경/untracked — 충돌 아님
+    const codes = [
+      ['A', 'M'], ['A', ' '], [' ', 'M'], ['M', ' '],
+      ['M', 'M'], ['D', ' '], [' ', 'D'], ['R', ' '], ['?', '?'],
+    ];
+    for (const [x, y] of codes) {
+      assert.equal(isUnmergedStatus(x, y), false, `${x}${y} 는 충돌이 아니어야 함`);
+    }
   });
 });
 

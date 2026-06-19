@@ -16,6 +16,7 @@ const {
   isAuthError,
   parseAuthTargetFromError,
   isConflict,
+  isUnmergedStatus,
   formatCommitDate,
   buildRebaseBackupName,
   selectStaleBackups,
@@ -156,6 +157,17 @@ const messages = {
     '{0} 파일 유지로 해결했습니다.',
     '{0} resolved as kept.'
   ],
+  // ─── Conflict marker restore ───────────────────────────
+  conflictRestoreTitle: [
+    '{0}에 충돌 마커가 없습니다. 원래 충돌 상태로 복원할까요?',
+    '{0} has no conflict markers. Restore the original conflict?'
+  ],
+  conflictRestoreDetail: [
+    '머지 에디터에서 해결한 내용이 있다면 복원 시 사라질 수 있습니다.',
+    'Any work resolved in the merge editor may be lost when restoring.'
+  ],
+  conflictRestore:    ['충돌 마커로 복원', 'Restore conflict markers'],
+  conflictOpenAsIs:   ['현재 내용 그대로 열기', 'Open current content'],
   // ─── Push ──────────────────────────────────────────────
   push:               ['Push', 'Push'],
   pushForce:          ['Force Push', 'Force Push'],
@@ -678,9 +690,11 @@ async function getChangedFiles(cwd) {
     const indexStatus = line[0];
     const workStatus = line[1];
     const filePath = line.substring(3);
+    // 머지/리베이스 충돌(unmerged) 상태: UU/AA/DD/AU/UD/UA/DU
+    const isConflict = isUnmergedStatus(indexStatus, workStatus);
     const isStaged = indexStatus !== ' ' && indexStatus !== '?';
     const statusCode = isStaged ? indexStatus : (workStatus === '?' ? '?' : workStatus);
-    return { filePath, statusCode, isStaged };
+    return { filePath, statusCode, isStaged, isConflict };
   });
 
   // untracked 파일 중 gitignore 대상 필터링
@@ -1321,49 +1335,120 @@ async function resolveModifyDeleteConflict(cwd, file, stages) {
   }
 }
 
-async function openMergeEditors(cwd, files) {
-  const tmpDir = path.join(os.tmpdir(), 'git-reflow-merge');
-  // 이전 임시 파일 정리
-  if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true });
-  fs.mkdirSync(tmpDir, { recursive: true });
+// 같은 파일을 가리키는 특정 종류의 탭을 모두 닫는다.
+//  kind 'text'  : 일반 텍스트 에디터(TabInputText)        — uri 일치
+//  kind 'merge' : 3-way 머지 에디터(TabInputTextMerge)    — result(워킹트리 파일) 일치
+// 마커 에디터와 머지 에디터가 같은 파일에 동시에 열리는 것을 막는다.
+async function closeEditorsForFile(uri, kind) {
+  const target = uri.toString();
+  const toClose = [];
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const input = tab.input;
+      const isText = kind === 'text'
+        && vscode.TabInputText && input instanceof vscode.TabInputText
+        && input.uri.toString() === target;
+      const isMerge = kind === 'merge'
+        && vscode.TabInputTextMerge && input instanceof vscode.TabInputTextMerge
+        && input.result.toString() === target;
+      if (isText || isMerge) toClose.push(tab);
+    }
+  }
+  if (toClose.length) {
+    try { await vscode.window.tabGroups.close(toClose); } catch { /* 사용자가 닫기 취소 등 — 무시 */ }
+  }
+}
 
+// 워킹트리의 상대경로 파일을 일반 에디터로 연다.
+// 삭제됐거나 워킹트리에 없는 파일은 안내만 한다(조용한 실패 방지).
+function openWorkingFile(relativePath) {
+  const cwd = getWorkspaceCwd();
+  if (!cwd || !relativePath) return;
+  const absPath = path.join(cwd, relativePath);
+  if (!fs.existsSync(absPath)) {
+    vscode.window.showInformationMessage(t('fileNotInWorkspace', relativePath));
+    return;
+  }
+  vscode.window.showTextDocument(vscode.Uri.file(absPath), { preview: false });
+}
+
+// 충돌 파일을 충돌 마커(<<<<<<< ======= >>>>>>>)가 보이는 텍스트 에디터로 연다.
+// VS Code 머지 에디터를 한 번 열면 워킹트리 파일에서 마커가 사라질 수 있으므로,
+// 마커가 없고 아직 unmerged 상태면 git checkout --merge 로 마커를 재생성한 뒤 연다.
+async function openConflictFileWithMarkers(cwd, file) {
+  if (!cwd || !file) return;
+  const abs = path.join(cwd, file);
+  if (!fs.existsSync(abs)) {
+    vscode.window.showInformationMessage(t('fileNotInWorkspace', file));
+    return;
+  }
+
+  let hasMarkers = false;
+  try { hasMarkers = fs.readFileSync(abs, 'utf8').includes('<<<<<<<'); } catch { /* 바이너리 등 */ }
+
+  let regenerated = false;
+  if (!hasMarkers) {
+    // 인덱스에 unmerged stage(1/2/3)가 남아 있을 때만 마커 재생성이 가능하다.
+    const stages = await getConflictStages(cwd, file);
+    if (stages.size > 0) {
+      // checkout --merge 는 워킹트리 파일을 원래 충돌 버전으로 덮어쓴다.
+      // 머지 에디터에서 이미 해결한 내용이 있을 수 있으므로, 덮어쓰기 전에 확인한다.
+      const restore = t('conflictRestore');
+      const openAsIs = t('conflictOpenAsIs');
+      const choice = await vscode.window.showWarningMessage(
+        t('conflictRestoreTitle', file),
+        { modal: true, detail: t('conflictRestoreDetail') },
+        restore,
+        openAsIs
+      );
+      if (choice === undefined) return; // 취소 — 아무것도 열지 않는다.
+      if (choice === restore) {
+        try {
+          await execGit(['checkout', '--merge', '--', file], cwd);
+          regenerated = true;
+        } catch (err) {
+          outputChannel.appendLine(
+            `[WARN] checkout --merge failed for ${file}: ${err.message || err}`
+          );
+        }
+      }
+      // openAsIs 선택 시: 복원하지 않고 현재 워킹트리 내용 그대로 연다.
+    }
+  }
+
+  const uri = vscode.Uri.file(abs);
+  // 같은 파일의 머지 에디터가 열려 있으면 닫는다(동시 오픈 방지).
+  await closeEditorsForFile(uri, 'merge');
+  await vscode.window.showTextDocument(uri, { preview: false });
+  // git 이 디스크를 다시 쓴 경우, 이미 열려 있던 문서가 옛 내용일 수 있어 디스크와 동기화
+  if (regenerated) {
+    try { await vscode.commands.executeCommand('workbench.action.files.revert'); }
+    catch { /* 활성 에디터 없음 등 — 무시 */ }
+  }
+}
+
+async function openMergeEditors(cwd, files) {
   for (const file of files) {
     const stages = await getConflictStages(cwd, file);
-    // modify/delete 충돌: ours(2) 또는 theirs(3) 중 하나가 없음
+    // modify/delete 충돌: ours(2) 또는 theirs(3) 중 하나가 없음 → 머지 에디터 부적합
     const isModifyDelete = !stages.has('2') || !stages.has('3');
     if (isModifyDelete) {
       await resolveModifyDeleteConflict(cwd, file, stages);
       continue;
     }
 
-    const fileName = path.basename(file);
     const resultUri = vscode.Uri.file(path.join(cwd, file));
+    // 같은 파일의 일반 에디터가 열려 있으면 닫는다(동시 오픈 방지).
+    await closeEditorsForFile(resultUri, 'text');
     try {
-      // git에서 base(:1), ours(:2), theirs(:3) 추출
-      let baseContent = '', oursContent = '', theirsContent = '';
-      try { baseContent = (await execGitSilent(['show', `:1:${file}`], cwd)).stdout; } catch { /* no base */ }
-      try { oursContent = (await execGitSilent(['show', `:2:${file}`], cwd)).stdout; } catch { /* no ours */ }
-      try { theirsContent = (await execGitSilent(['show', `:3:${file}`], cwd)).stdout; } catch { /* no theirs */ }
-
-      // 임시 파일 생성
-      const ts = Date.now();
-      const basePath = path.join(tmpDir, `${ts}_BASE_${fileName}`);
-      const oursPath = path.join(tmpDir, `${ts}_OURS_${fileName}`);
-      const theirsPath = path.join(tmpDir, `${ts}_THEIRS_${fileName}`);
-      fs.writeFileSync(basePath, baseContent);
-      fs.writeFileSync(oursPath, oursContent);
-      fs.writeFileSync(theirsPath, theirsContent);
-
-      // VS Code 내장 3-way merge editor 열기
-      await vscode.commands.executeCommand('_open.mergeEditor', {
-        $type: 'uri',
-        base: vscode.Uri.file(basePath),
-        input1: { uri: vscode.Uri.file(oursPath), title: 'Current (Ours)' },
-        input2: { uri: vscode.Uri.file(theirsPath), title: 'Incoming (Theirs)' },
-        result: resultUri,
-      });
-    } catch {
-      // merge editor 실패 시 일반 에디터로 열기
+      // Git 확장의 공식 명령으로 3-way Merge Editor 열기.
+      // 워킹트리의 충돌 파일 Uri만 넘기면 base/ours/theirs는 VS Code가 처리한다.
+      await vscode.commands.executeCommand('git.openMergeEditor', resultUri);
+    } catch (err) {
+      // 머지 에디터를 못 열면 조용히 넘기지 말고 원인을 남기고 일반 에디터로 폴백
+      outputChannel.appendLine(
+        `[WARN] git.openMergeEditor failed for ${file}: ${err.message || err}`
+      );
       await vscode.commands.executeCommand('vscode.open', resultUri);
     }
   }
@@ -3170,9 +3255,17 @@ class GitQuickPickTreeProvider {
     item.id = `file:${f.filePath}`;
     item.description = dirDesc;
     item.filePath = f.filePath;
-    item.tooltip = `${f.filePath} [${f.statusCode}] ${f.isStaged ? 'staged' : 'unstaged'}`;
+    item.tooltip = `${f.filePath} [${f.isConflict ? 'conflict' : f.statusCode}]`
+      + ` ${f.isStaged ? 'staged' : 'unstaged'}`;
 
-    if (f.statusCode === '?') {
+    if (f.isConflict) {
+      // 충돌 파일: 경고 아이콘 + "충돌" 표시
+      item.contextValue = 'fileConflict';
+      item.iconPath = new vscode.ThemeIcon('warning',
+        new vscode.ThemeColor('gitDecoration.conflictingResourceForeground'));
+      const conflictLabel = isKo ? '충돌' : 'conflict';
+      item.description = dirDesc ? `${conflictLabel}  ${dirDesc}` : conflictLabel;
+    } else if (f.statusCode === '?') {
       item.contextValue = 'fileUntracked';
     } else if (f.statusCode === 'M') {
       item.contextValue = 'fileModified';
@@ -3182,7 +3275,11 @@ class GitQuickPickTreeProvider {
       item.contextValue = 'fileOther';
     }
 
-    if (f.statusCode === 'M') {
+    // 충돌은 statusCode가 D/A로 잡혀 아래 분기에 걸릴 수 있으므로 먼저 가로챈다.
+    if (f.isConflict) {
+      item.command = { command: 'gitReflow.dblClick', title: 'Merge',
+        arguments: ['gitReflow.openConflictMergeEditor', f.filePath] };
+    } else if (f.statusCode === 'M') {
       item.command = { command: 'gitReflow.dblClick', title: 'Diff',
         arguments: ['gitReflow.openFileDiff', fileUri] };
     } else if (f.statusCode === 'A' || f.statusCode === '?') {
@@ -3638,19 +3735,21 @@ function activate(context) {
     },
     'gitReflow.jumpToSource': (item) => {
       if (!item) return;
-      const cwd = getWorkspaceCwd();
-      if (!cwd) return;
       // 변경사항 파일은 filePath, 히스토리 파일은 tooltip에 상대경로
-      const relativePath = item.filePath || item.tooltip;
-      if (!relativePath) return;
-      const absPath = path.join(cwd, relativePath);
-      // 삭제됐거나 워킹트리에 없는 파일은 열 수 없으므로 안내만 한다(조용한 실패 방지)
-      if (!fs.existsSync(absPath)) {
-        vscode.window.showInformationMessage(t('fileNotInWorkspace', relativePath));
-        return;
-      }
-      const uri = vscode.Uri.file(absPath);
-      vscode.window.showTextDocument(uri, { preview: false });
+      openWorkingFile(item.filePath || item.tooltip);
+    },
+    // 충돌 파일을 일반 에디터로 열기 (충돌 마커 <<<<<<< 가 보이는 워킹트리 파일)
+    'gitReflow.openConflictInEditor': (arg) => {
+      const cwd = getWorkspaceCwd();
+      const file = typeof arg === 'string' ? arg : arg && arg.filePath;
+      openConflictFileWithMarkers(cwd, file);
+    },
+    // 충돌 파일을 3-way Merge Editor로 열기
+    'gitReflow.openConflictMergeEditor': (arg) => {
+      const cwd = getWorkspaceCwd();
+      const filePath = typeof arg === 'string' ? arg : arg && arg.filePath;
+      if (!cwd || !filePath) return;
+      openMergeEditors(cwd, [filePath]);
     },
     'gitReflow.copyPath': (item) => {
       if (!item || !item.filePath) return;

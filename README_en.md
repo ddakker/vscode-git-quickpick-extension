@@ -261,6 +261,12 @@ code --install-extension git-reflow-0.9.4.vsix
 
 Or in VS Code: Extensions (Ctrl+Shift+X) → ... → Install from VSIX
 
+## Development & Testing Environment
+
+- **Fedora Linux**: primary dev/test environment, used daily in production — most thoroughly verified
+- **Windows**: tested
+- **macOS**: supported, used in production by some acquaintances
+
 ## License
 
 Apache-2.0

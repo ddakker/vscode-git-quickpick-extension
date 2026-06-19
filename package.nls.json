@@ -54,5 +54,7 @@
   "command.stash": "Git QuickPick: Stash Changes",
   "command.stashPop": "Pop (restore & remove)",
   "command.stashApply": "Apply (restore & keep)",
-  "command.stashDrop": "Drop Stash"
+  "command.stashDrop": "Drop Stash",
+  "command.openConflictMergeEditor": "Resolve in Merge Editor",
+  "command.openConflictInEditor": "Open in Editor (conflict markers)"
 }

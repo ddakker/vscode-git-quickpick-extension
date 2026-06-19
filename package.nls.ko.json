@@ -54,5 +54,7 @@
   "command.stash": "Git QuickPick: 변경 사항 스태시",
   "command.stashPop": "복구 후 삭제 (pop)",
   "command.stashApply": "복구 후 보존 (apply)",
-  "command.stashDrop": "스태시 삭제"
+  "command.stashDrop": "스태시 삭제",
+  "command.openConflictMergeEditor": "Merge Editor에서 충돌 해결",
+  "command.openConflictInEditor": "에디터에서 열기 (충돌 마커)"
 }
