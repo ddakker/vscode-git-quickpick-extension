@@ -173,6 +173,7 @@ const messages = {
   pushForce:          ['Force Push', 'Force Push'],
   pushSuccess:        ['{0} 브랜치 푸시 완료', 'Pushed branch {0}'],
   forcePushConfirm:   ['{0} 브랜치를 Force Push합니까? 원격 히스토리가 덮어씌워집니다.', 'Force push {0}? This will overwrite remote history.'],
+  forcePullConfirm:   ['{0} 브랜치를 Force Pull합니까? 로컬 변경사항과 커밋이 원격 내용으로 덮어써집니다.', 'Force pull {0}? Local changes and commits will be overwritten by the remote.'],
   detachedHeadPush:   ['Detached HEAD 상태입니다. push를 실행할 수 없습니다.', 'Cannot push in detached HEAD state.'],
   checkingRemote:     ['원격 변경사항 확인 중...', 'Checking remote changes...'],
   remoteHasCommits:   [
@@ -720,6 +721,16 @@ function fileStatusLetter(statusCode) {
   if (statusCode === 'A' || statusCode === '?') return 'A';
   if (statusCode === 'D') return 'D';
   return statusCode;
+}
+
+// 변경 파일 클릭 시 실행할 명령과 인자 반환 (트리/인라인 webview 공통)
+//  - 충돌: Merge Editor / 수정: diff / 신규: 파일 열기 / 삭제: 삭제 diff
+function fileOpenCommand(f, cwd) {
+  const fileUri = vscode.Uri.file(path.join(cwd, f.filePath));
+  if (f.isConflict) return ['gitReflow.openConflictMergeEditor', f.filePath];
+  if (f.statusCode === 'M') return ['gitReflow.openFileDiff', fileUri];
+  if (f.statusCode === 'D') return ['gitReflow.openDeletedFileDiff', f.filePath];
+  return ['vscode.open', fileUri];
 }
 
 // ─── Validation ─────────────────────────────────────────────────────
@@ -1717,6 +1728,37 @@ async function execPull() {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: t('executing', 'git pull') },
       () => execGit(['pull'], cwd)
+    );
+    vscode.window.showInformationMessage(t('pullSuccess', currentBranch));
+  } catch (err) {
+    const msg = err.stderr || err.message || String(err);
+    vscode.window.showErrorMessage(t('failed', msg.trim()));
+  }
+}
+
+// 현재 브랜치를 원격(origin/현재브랜치)으로 강제 리셋 — 로컬 변경/커밋이 사라진다.
+async function execForcePull() {
+  const cwd = await validateGitWorkspace();
+  if (!cwd) return;
+
+  if (await isDetachedHead(cwd)) {
+    vscode.window.showErrorMessage(t('detachedHead'));
+    return;
+  }
+
+  const currentBranch = await getCurrentBranch(cwd);
+  const confirm = await vscode.window.showWarningMessage(
+    t('forcePullConfirm', currentBranch), { modal: true }, t('yes')
+  );
+  if (confirm !== t('yes')) return;
+
+  try {
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: t('executing', `git fetch + reset ${currentBranch}`) },
+      async () => {
+        await execGit(['fetch', 'origin', currentBranch], cwd);
+        await execGit(['reset', '--hard', `origin/${currentBranch}`], cwd);
+      }
     );
     vscode.window.showInformationMessage(t('pullSuccess', currentBranch));
   } catch (err) {
@@ -3118,8 +3160,15 @@ async function showHistory() {
 
 // ─── Sidebar TreeView ───────────────────────────────────────────────
 
+// 변경 파일 목록 표시 위치 설정: 'workspace' = 작업 공간 트리 안(기본) | 'separate' = 별도 뷰
+function changesViewMode() {
+  return vscode.workspace.getConfiguration('gitReflow').get('changesViewMode', 'workspace');
+}
+
 class GitQuickPickTreeProvider {
-  constructor() {
+  // role: 'main' = 작업 공간 트리(히스토리/브랜치/스태시 등), 'changes' = 변경 파일 전용 트리
+  constructor(role = 'main') {
+    this._role = role;
     this._fileViewMode = 'list';
     this._onDidChangeTreeData = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -3187,11 +3236,24 @@ class GitQuickPickTreeProvider {
     }
   }
 
+  // 파일/트리 보기 전환
+  toggleFileView() {
+    this._fileViewMode = this._fileViewMode === 'list' ? 'tree' : 'list';
+    this.refresh(this._commitSectionItem);
+  }
+
   getTreeItem(element) { return element; }
 
   async getChildren(element) {
     const cwd = getWorkspaceCwd();
-    if (!element) return this._getRootItems();
+    if (!element) {
+      // 변경 사항 전용 트리는 루트에 변경 파일 목록만 표시 (섹션 헤더 없음)
+      if (this._role === 'changes') {
+        if (!cwd || !await isGitRepo(cwd)) return [];
+        return this._getChangedFileItems(cwd, null);
+      }
+      return this._getRootItems();
+    }
     if (!cwd || !await isGitRepo(cwd)) return [];
 
     switch (element.contextValue) {
@@ -3238,19 +3300,21 @@ class GitQuickPickTreeProvider {
       items.push(abortItem);
     }
 
-    // 변경 사항
-    const commitItem = new vscode.TreeItem(
-      t('sectionCommit'),
-      this._changeCount > 0
-        ? vscode.TreeItemCollapsibleState.Expanded
-        : vscode.TreeItemCollapsibleState.Collapsed
-    );
-    commitItem.id = 'commitSection';
-    commitItem.iconPath = new vscode.ThemeIcon('check');
-    commitItem.contextValue = 'commitSection';
-    commitItem.description = this._changeCount > 0 ? t('changes', this._changeCount) : '';
-    this._commitSectionItem = commitItem;
-    items.push(commitItem);
+    // 변경 사항 (작업 공간 모드일 때만 트리 안에 표시; 별도 뷰/인라인 모드면 생략)
+    if (changesViewMode() === 'workspace') {
+      const commitItem = new vscode.TreeItem(
+        t('sectionCommit'),
+        this._changeCount > 0
+          ? vscode.TreeItemCollapsibleState.Expanded
+          : vscode.TreeItemCollapsibleState.Collapsed
+      );
+      commitItem.id = 'commitSection';
+      commitItem.iconPath = new vscode.ThemeIcon('check');
+      commitItem.contextValue = 'commitSection';
+      commitItem.description = this._changeCount > 0 ? t('changes', this._changeCount) : '';
+      this._commitSectionItem = commitItem;
+      items.push(commitItem);
+    }
 
     // 히스토리
     const historyExpanded = this._expandedSections.has('historySection');
@@ -3317,20 +3381,9 @@ class GitQuickPickTreeProvider {
       item.contextValue = 'fileOther';
     }
 
-    // 충돌은 statusCode가 D/A로 잡혀 아래 분기에 걸릴 수 있으므로 먼저 가로챈다.
-    if (f.isConflict) {
-      item.command = { command: 'gitReflow.dblClick', title: 'Merge',
-        arguments: ['gitReflow.openConflictMergeEditor', f.filePath] };
-    } else if (f.statusCode === 'M') {
-      item.command = { command: 'gitReflow.dblClick', title: 'Diff',
-        arguments: ['gitReflow.openFileDiff', fileUri] };
-    } else if (f.statusCode === 'A' || f.statusCode === '?') {
-      item.command = { command: 'gitReflow.dblClick', title: 'Open',
-        arguments: ['vscode.open', fileUri] };
-    } else if (f.statusCode === 'D') {
-      item.command = { command: 'gitReflow.dblClick', title: 'Diff',
-        arguments: ['gitReflow.openDeletedFileDiff', f.filePath] };
-    }
+    // 더블클릭 시 상태별 동작 (충돌/수정/신규/삭제) — 트리/인라인 공통 매핑 사용
+    item.command = { command: 'gitReflow.dblClick', title: 'Open',
+      arguments: fileOpenCommand(f, cwd) };
 
     const isChecked = this._checkedFiles.get(f.filePath) ?? false;
     item.checkboxState = isChecked
@@ -3575,7 +3628,7 @@ function activate(context) {
   );
 
   // Sidebar TreeView 등록
-  const treeProvider = new GitQuickPickTreeProvider();
+  const treeProvider = new GitQuickPickTreeProvider('main');
   const treeView = vscode.window.createTreeView('gitQuickPickView', {
     treeDataProvider: treeProvider,
     showCollapseAll: false,
@@ -3583,11 +3636,28 @@ function activate(context) {
   });
   context.subscriptions.push(treeView);
 
+  // 변경 사항 전용 TreeView (설정 ON 시 커밋 버튼 바로 아래에 표시)
+  const changesProvider = new GitQuickPickTreeProvider('changes');
+  const changesView = vscode.window.createTreeView('gitQuickPickChanges', {
+    treeDataProvider: changesProvider,
+    showCollapseAll: false,
+    manageCheckboxStateManually: true,
+  });
+  context.subscriptions.push(changesView);
+
+  // 변경 사항(체크박스/커밋)을 다루는 현재 활성 provider — 별도 뷰 모드면 별도 트리, 아니면 작업 공간 트리
+  const activeChangesProvider = () => (changesViewMode() === 'separate' ? changesProvider : treeProvider);
+
+  // 별도 뷰 모드일 때 변경 파일 트리도 함께 갱신
+  async function syncChangesHost() {
+    if (changesViewMode() === 'separate') await changesProvider.updateStatus();
+  }
+
 
   // Ctrl+Enter / 웹뷰 커밋 버튼으로 커밋
   context.subscriptions.push(
     commitInputProvider.onDidCommit(async () => {
-      await execCommit(treeProvider, commitInputProvider);
+      await execCommit(activeChangesProvider(), commitInputProvider);
       await fullRefresh();
     })
   );
@@ -3601,18 +3671,21 @@ function activate(context) {
         : treeProvider._branchName;
     }
     treeView.description = desc;
+    changesView.description = treeProvider._changeCount > 0 ? t('changes', treeProvider._changeCount) : '';
     commitInputProvider.setBranchDescription(desc);
   }
 
   // updateStatus 후 타이틀 + 컨텍스트 갱신
   const origUpdateStatus = treeProvider.updateStatus.bind(treeProvider);
   function updateCheckedFilesContext() {
-    const hasChecked = [...treeProvider._checkedFiles.values()].some(v => v);
+    const host = activeChangesProvider();
+    const hasChecked = [...host._checkedFiles.values()].some(v => v);
     vscode.commands.executeCommand('setContext', 'gitReflow.hasCheckedFiles', hasChecked);
   }
 
   treeProvider.updateStatus = async function () {
     await origUpdateStatus();
+    await syncChangesHost();
     updateTitleDescription();
     vscode.commands.executeCommand('setContext', 'gitReflow.hasChanges', treeProvider._changeCount > 0);
     updateCheckedFilesContext();
@@ -3622,6 +3695,12 @@ function activate(context) {
   // 패널이 다시 보일 때 자동 새로고침
   context.subscriptions.push(
     treeView.onDidChangeVisibility(e => {
+      if (e.visible) treeProvider.updateStatus();
+    })
+  );
+  context.subscriptions.push(
+    changesView.onDidChangeVisibility(e => {
+      // 래퍼(treeProvider.updateStatus)가 변경사항 트리 갱신 + 컨텍스트까지 함께 처리
       if (e.visible) treeProvider.updateStatus();
     })
   );
@@ -3654,22 +3733,26 @@ function activate(context) {
     })
   );
 
-  // 체크박스 상태 변경 처리
-  context.subscriptions.push(
-    treeView.onDidChangeCheckboxState(e => {
-      for (const [item, state] of e.items) {
-        const checked = state === vscode.TreeItemCheckboxState.Checked;
-        if (item.contextValue === 'selectAll') {
-          for (const key of treeProvider._checkedFiles.keys()) {
-            treeProvider._checkedFiles.set(key, checked);
-          }
-          treeProvider.refresh(treeProvider._commitSectionItem);
-        } else if (item.filePath) {
-          treeProvider._checkedFiles.set(item.filePath, checked);
+  // 체크박스 상태 변경 처리 (메인/변경사항 트리 공통)
+  function handleCheckboxChange(provider, e) {
+    for (const [item, state] of e.items) {
+      const checked = state === vscode.TreeItemCheckboxState.Checked;
+      if (item.contextValue === 'selectAll') {
+        for (const key of provider._checkedFiles.keys()) {
+          provider._checkedFiles.set(key, checked);
         }
+        provider.refresh(provider._commitSectionItem);
+      } else if (item.filePath) {
+        provider._checkedFiles.set(item.filePath, checked);
       }
-      updateCheckedFilesContext();
-    })
+    }
+    updateCheckedFilesContext();
+  }
+  context.subscriptions.push(
+    treeView.onDidChangeCheckboxState(e => handleCheckboxChange(treeProvider, e))
+  );
+  context.subscriptions.push(
+    changesView.onDidChangeCheckboxState(e => handleCheckboxChange(changesProvider, e))
   );
 
   // 파일 저장 시 상태 갱신
@@ -3677,10 +3760,11 @@ function activate(context) {
     vscode.workspace.onDidSaveTextDocument(() => treeProvider.updateStatus())
   );
 
-  // 커밋 표시 순서 설정이 바뀌면 트리뷰를 새로고침해 즉시 반영
+  // 커밋 표시 순서 / 변경사항 분리 설정이 바뀌면 트리뷰를 새로고침해 즉시 반영
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('gitReflow.commitFieldOrder')) treeProvider.refresh();
+      if (e.affectsConfiguration('gitReflow.changesViewMode')) fullRefresh();
     })
   );
 
@@ -3717,6 +3801,7 @@ function activate(context) {
     await treeProvider._fetchStatus();
     treeProvider._commitSectionItem = null;
     treeProvider.refresh();
+    await syncChangesHost();
     updateTitleDescription();
     vscode.commands.executeCommand('setContext', 'gitReflow.hasChanges', treeProvider._changeCount > 0);
     updateCheckedFilesContext();
@@ -3748,19 +3833,8 @@ function activate(context) {
       dblClickLastTime = now;
     },
     // 사이드바 커밋
-    'gitReflow.execCommit': withRefresh(() => execCommit(treeProvider, commitInputProvider)),
-    'gitReflow.toggleSelectAll': () => {
-      const allChecked = [...treeProvider._checkedFiles.values()].length > 0
-        && [...treeProvider._checkedFiles.values()].every(v => v);
-      for (const key of treeProvider._checkedFiles.keys()) {
-        treeProvider._checkedFiles.set(key, !allChecked);
-      }
-      treeProvider.refresh(treeProvider._commitSectionItem);
-    },
-    'gitReflow.toggleFileView': () => {
-      treeProvider._fileViewMode = treeProvider._fileViewMode === 'list' ? 'tree' : 'list';
-      treeProvider.refresh(treeProvider._commitSectionItem);
-    },
+    'gitReflow.execCommit': withRefresh(() => execCommit(activeChangesProvider(), commitInputProvider)),
+    'gitReflow.toggleFileView': () => activeChangesProvider().toggleFileView(),
     'gitReflow.stageFile': withRefresh((item) => execStageFile(item)),
     'gitReflow.rollbackFile': withRefresh((item) => execRollbackFile(item)),
     'gitReflow.deleteFile': withRefresh((item) => execDeleteFile(item)),
@@ -3769,6 +3843,7 @@ function activate(context) {
     // 타이틀 바 명령
     'gitReflow.execPush': withRefresh(() => execPush(false)),
     'gitReflow.execForcePush': withRefresh(() => execPush(true)),
+    'gitReflow.execForcePull': withRefresh(() => execForcePull()),
     'gitReflow.execPull': withRefresh(() => execPull()),
     'gitReflow.refreshView': async () => {
       treeProvider._remoteFetchRequested = true;
