@@ -792,6 +792,44 @@ async function getCommitLog(cwd, options = {}) {
   }
 }
 
+// 커밋 표시 필드별 값 추출기 (설정 commitFieldOrder의 키와 1:1)
+const COMMIT_FIELD_VALUE = {
+  message: c => c.message,
+  author:  c => c.author,
+  date:    c => c.date,
+  hash:    c => c.hash.substring(0, 8),
+};
+
+// 필드별 고정 글자폭 — 메시지는 가변, 나머지는 칸 정렬용 고정폭
+// (트리뷰 description은 가변폭 폰트라 완벽 정렬은 아니고 글자수 기준 근사 정렬)
+const COMMIT_FIELD_WIDTH = { author: 10, date: 19, hash: 8 };
+
+// 텍스트를 지정 글자폭에 맞춤 — 길면 …로 자르고, 짧으면 공백으로 채움
+function fitWidth(text, width) {
+  const s = String(text);
+  if (!width) return s;
+  if (s.length > width) return s.substring(0, width - 1) + '…';
+  return s.padEnd(width, ' ');
+}
+
+// 설정에서 커밋 필드 순서를 읽어 유효 키 배열로 반환 (잘못된 값은 기본 순서)
+function getCommitFieldOrder() {
+  const defaultOrder = ['message', 'date', 'author', 'hash'];
+  const raw = vscode.workspace.getConfiguration('gitReflow')
+    .get('commitFieldOrder', defaultOrder.join(','));
+  const fields = raw.split(',').map(s => s.trim()).filter(f => COMMIT_FIELD_VALUE[f]);
+  return fields.length ? fields : defaultOrder;
+}
+
+// 커밋 → 트리 항목 표시값 — 첫 필드는 밝은 label(폭 고정 안 함), 나머지는 흐린 description
+function formatCommitLabel(c) {
+  const [first, ...rest] = getCommitFieldOrder();
+  return {
+    label: COMMIT_FIELD_VALUE[first](c),
+    description: rest.map(f => fitWidth(COMMIT_FIELD_VALUE[f](c), COMMIT_FIELD_WIDTH[f])).join('  '),
+  };
+}
+
 // 커밋 항목 툴팁 — 날짜 / 작성자 / 해시 / 메시지 순
 function buildCommitTooltip(c) {
   return [
@@ -943,6 +981,15 @@ class CommitInputViewProvider {
     this._onDidCommit = new vscode.EventEmitter();
     this.onDidCommit = this._onDidCommit.event;
     this._pendingResolve = null; // squash 등 외부에서 메시지 대기 시 사용
+    this._branchDescription = ''; // 타이틀 옆 브랜치 정보
+  }
+
+  // "메시지 입력" 뷰 타이틀 옆에 브랜치 정보 표시
+  setBranchDescription(text) {
+    this._branchDescription = text || '';
+    if (this._view) {
+      this._view.description = this._branchDescription;
+    }
   }
 
   /**
@@ -1026,6 +1073,7 @@ class CommitInputViewProvider {
 
   resolveWebviewView(webviewView) {
     this._view = webviewView;
+    webviewView.description = this._branchDescription;
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.html = this._getHtml();
 
@@ -3134,10 +3182,7 @@ class GitQuickPickTreeProvider {
     if (this._inProgress || !this._commitSectionItem) {
       this.refresh();
     } else {
-      const descParts = [];
-      if (this._branchName) descParts.push(this._branchName);
-      if (this._changeCount > 0) descParts.push(t('changes', this._changeCount));
-      this._commitSectionItem.description = descParts.join(' · ');
+      this._commitSectionItem.description = this._changeCount > 0 ? t('changes', this._changeCount) : '';
       this.refresh(this._commitSectionItem);
     }
   }
@@ -3203,10 +3248,7 @@ class GitQuickPickTreeProvider {
     commitItem.id = 'commitSection';
     commitItem.iconPath = new vscode.ThemeIcon('check');
     commitItem.contextValue = 'commitSection';
-    const descParts = [];
-    if (this._branchName) descParts.push(this._branchName);
-    if (this._changeCount > 0) descParts.push(t('changes', this._changeCount));
-    commitItem.description = descParts.join(' · ');
+    commitItem.description = this._changeCount > 0 ? t('changes', this._changeCount) : '';
     this._commitSectionItem = commitItem;
     items.push(commitItem);
 
@@ -3361,8 +3403,9 @@ class GitQuickPickTreeProvider {
   async _getHistoryItems(cwd) {
     const commits = await getCommitLog(cwd);
     return commits.map((c, i) => {
-      const item = new vscode.TreeItem(c.message, vscode.TreeItemCollapsibleState.Collapsed);
-      item.description = `${c.author}  ${c.date}  ${c.hash.substring(0, 8)}`;
+      const { label, description } = formatCommitLabel(c);
+      const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.Collapsed);
+      item.description = description;
       item.tooltip = buildCommitTooltip(c);
       item.iconPath = new vscode.ThemeIcon('git-commit');
       item.contextValue = i === 0 ? 'historyCommitLatest' : 'historyCommit';
@@ -3403,6 +3446,12 @@ class GitQuickPickTreeProvider {
   async _getLocalBranchItems(cwd) {
     const currentBranch = await getCurrentBranch(cwd);
     const branches = await getLocalBranches(cwd);
+    // 현재 브랜치를 항상 맨 위에 노출한다 (나머지는 기존 커밋 날짜 순서 유지)
+    branches.sort((a, b) => {
+      if (a.name === currentBranch) return -1;
+      if (b.name === currentBranch) return 1;
+      return 0;
+    });
     return branches.map(b => {
       const isCurrent = b.name === currentBranch;
       const label = isCurrent ? `${b.name} ${t('current')}` : b.name;
@@ -3457,8 +3506,9 @@ class GitQuickPickTreeProvider {
     }
     const commits = await getCommitLog(cwd, { branch: parentItem.branchName });
     return commits.map(c => {
-      const item = new vscode.TreeItem(c.message, vscode.TreeItemCollapsibleState.Collapsed);
-      item.description = `${c.author}  ${c.date}  ${c.hash.substring(0, 8)}`;
+      const { label, description } = formatCommitLabel(c);
+      const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.Collapsed);
+      item.description = description;
       item.tooltip = buildCommitTooltip(c);
       item.iconPath = new vscode.ThemeIcon('git-commit');
       item.contextValue = 'branchHistoryCommit';
@@ -3542,16 +3592,16 @@ function activate(context) {
     })
   );
 
-  // 타이틀에 브랜치 정보 표시
+  // 타이틀에 브랜치 정보 표시 ("작업 공간" + "메시지 입력")
   function updateTitleDescription() {
+    let desc = '';
     if (treeProvider._branchName) {
-      const desc = treeProvider._changeCount > 0
+      desc = treeProvider._changeCount > 0
         ? `${treeProvider._branchName} · ${t('changes', treeProvider._changeCount)}`
         : treeProvider._branchName;
-      treeView.description = desc;
-    } else {
-      treeView.description = '';
     }
+    treeView.description = desc;
+    commitInputProvider.setBranchDescription(desc);
   }
 
   // updateStatus 후 타이틀 + 컨텍스트 갱신
@@ -3625,6 +3675,13 @@ function activate(context) {
   // 파일 저장 시 상태 갱신
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(() => treeProvider.updateStatus())
+  );
+
+  // 커밋 표시 순서 설정이 바뀌면 트리뷰를 새로고침해 즉시 반영
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('gitReflow.commitFieldOrder')) treeProvider.refresh();
+    })
   );
 
   // ─── Inline Git Blame ──────────────────────────────────────────────

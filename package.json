@@ -55,6 +55,25 @@
           "default": 30,
           "minimum": 0,
           "description": "%config.backupMaxAgeDays%"
+        },
+        "gitReflow.commitFieldOrder": {
+          "type": "string",
+          "default": "message,date,author,hash",
+          "enum": [
+            "message,date,author,hash",
+            "message,author,date,hash",
+            "date,message,author,hash",
+            "author,date,hash,message",
+            "hash,message,author,date"
+          ],
+          "enumDescriptions": [
+            "%config.commitFieldOrder.opt1%",
+            "%config.commitFieldOrder.opt2%",
+            "%config.commitFieldOrder.opt3%",
+            "%config.commitFieldOrder.opt4%",
+            "%config.commitFieldOrder.opt5%"
+          ],
+          "description": "%config.commitFieldOrder%"
         }
       }
     },
