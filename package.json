@@ -30,12 +30,6 @@
     "views": {
       "gitQuickPickExplorer": [
         {
-          "id": "gitQuickPickCommitInput",
-          "name": "%view.commitInput%",
-          "type": "webview",
-          "initialSize": 1
-        },
-        {
           "id": "gitQuickPickHistory",
           "name": "%view.history%",
           "type": "webview",
@@ -392,53 +386,13 @@
       "view/title": [
         {
           "command": "gitReflow.toggleFileView",
-          "when": "view == gitQuickPickCommitInput && gitReflow.hasChanges",
-          "group": "navigation@2"
+          "when": "view =~ /^gitQuickPick(View|Changes)$/ && gitReflow.hasChanges",
+          "group": "navigation@1"
         },
         {
           "command": "gitReflow.execCommit",
-          "when": "view == gitQuickPickCommitInput && gitReflow.hasCheckedFiles",
-          "group": "navigation@3"
-        },
-        {
-          "command": "gitReflow.execPush",
-          "when": "view == gitQuickPickCommitInput",
-          "group": "navigation@4"
-        },
-        {
-          "command": "gitReflow.execPull",
-          "when": "view == gitQuickPickCommitInput",
-          "group": "navigation@5"
-        },
-        {
-          "command": "gitReflow.createStash",
-          "when": "view == gitQuickPickCommitInput && gitReflow.hasChanges",
-          "group": "navigation@6"
-        },
-        {
-          "command": "gitReflow.refreshView",
-          "when": "view == gitQuickPickCommitInput",
-          "group": "navigation@7"
-        },
-        {
-          "command": "gitReflow.execForcePush",
-          "when": "view == gitQuickPickCommitInput",
-          "group": "1_push@1"
-        },
-        {
-          "command": "gitReflow.execForcePull",
-          "when": "view == gitQuickPickCommitInput",
-          "group": "1_push@2"
-        },
-        {
-          "command": "gitReflow.cleanupBackups",
-          "when": "view == gitQuickPickCommitInput",
-          "group": "2_backup@1"
-        },
-        {
-          "command": "gitReflow.openSettings",
-          "when": "view == gitQuickPickCommitInput",
-          "group": "2_backup@2"
+          "when": "view =~ /^gitQuickPick(View|Changes)$/ && gitReflow.hasCheckedFiles",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [

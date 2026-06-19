@@ -84,11 +84,31 @@ describe('renderLists', () => {
 });
 
 describe('renderShell', () => {
+  const opts = (pos) => ({
+    nonce: 'N0NCE', cspSource: 'vscode-resource:',
+    labels: { tbRefresh: 'R', inputPlaceholder: 'msg', inputCommit: 'Commit' },
+    menu: { commit: [], branch: [] }, inputPosition: pos,
+  });
   test('CSP + nonce 스크립트 + 툴바 포함', () => {
-    const shell = renderShell({ nonce: 'N0NCE', cspSource: 'vscode-resource:', labels: { tbRefresh: 'R' }, menu: { commit: [], branch: [] } });
+    const shell = renderShell(opts('top'));
     assert.ok(shell.includes('Content-Security-Policy'));
     assert.ok(shell.includes("script-src 'nonce-N0NCE'"));
     assert.ok(shell.includes('nonce="N0NCE"'));
     assert.ok(shell.includes('data-cmd="gitReflow.refreshView"'));
+    assert.ok(shell.includes('data-cmd="gitReflow.execForcePush"'));
+  });
+  test('입력 영역(textarea + 커밋 버튼) 포함 (요구 2)', () => {
+    const shell = renderShell(opts('top'));
+    assert.ok(shell.includes('id="inputarea"'));
+    assert.ok(shell.includes('id="msg"'));
+    assert.ok(shell.includes('id="commitBtn"'));
+  });
+  test('messageInputPosition → body class (top/bottom/hidden)', () => {
+    assert.ok(renderShell(opts('top')).includes('<body class="pos-top">'));
+    assert.ok(renderShell(opts('bottom')).includes('<body class="pos-bottom">'));
+    assert.ok(renderShell(opts('hidden')).includes('<body class="pos-hidden">'));
+  });
+  test('잘못된 position 은 top 으로 폴백', () => {
+    assert.ok(renderShell(opts('bogus')).includes('<body class="pos-top">'));
   });
 });

@@ -287,6 +287,12 @@ const messages = {
   wvRefresh:          ['새로고침', 'Refresh'],
   wvSettings:         ['설정', 'Settings'],
   wvCleanup:          ['백업 정리', 'Clean up backups'],
+  inputPlaceholder:   ['커밋 메시지 (Ctrl+Enter로 커밋)', 'Commit message (Ctrl+Enter to commit)'],
+  inputCommit:        ['커밋', 'Commit'],
+  inputCommitDefault: ['✓ 커밋', '✓ Commit'],
+  inputRecent:        ['최근 메시지', 'Recent messages'],
+  noCommitHistory:    ['커밋 메시지 히스토리가 없습니다', 'No commit message history'],
+  selectRecentMsg:    ['최근 커밋 메시지 선택', 'Select recent commit message'],
 };
 
 function t(key, ...args) {
