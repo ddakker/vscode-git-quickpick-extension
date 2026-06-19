@@ -17,3 +17,13 @@ require('./git-helpers.test');
 require('./i18n.test');
 require('./get-current-branch.test');
 require('./file-status-letter.test');
+// 1-1 리팩토링 안전망 — 순수 lib 추출 + 설정 readers
+require('./format-commit.test');
+require('./parse-git-output.test');
+require('./branch-parse.test');
+require('./relative-date.test');
+require('./config-readers.test');
+// 2단계 webview — buildState / webview-html / fakeItem 계약
+require('./webview-html.test');
+require('./build-state.test');
+require('./fake-item-contract.test');

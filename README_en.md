@@ -36,29 +36,35 @@ A common development workflow using Git QuickPick:
 ## Sidebar Layout
 
 ```
-GIT QUICKPICK                    [Select All/Deselect All][Toggle File/Tree View][Commit checked files][Push][Pull][Refresh]
+GIT QUICKPICK
   Message Input
     Commit message input (Ctrl+Enter to commit)
     [Commit] button + recent message history
 
-  Workspace
+  History & Branches (WebView)       [⟳][＋][↑][↓][⤓][⤵][🧹][⚙]
+    v History
+        Bug fix             2026-04-07 PM 08:45  John       a1b2c3d
+        Add user list       2026-04-06 AM 10:30  John       e4f5g6h
+    > Local Branches
+        v main (current)
+            (commit table for that branch)
+        feature/login
+    > Remote Branches
+        origin/main
+        ☁⤓ origin/develop (not fetched)
+
+  Workspace (Tree)
     v Changes          main . 2 changes
         [v] web.xml     M    [Rollback] [Delete File]
         [v] App.java    M    [Rollback] [Delete File]
-
-    > History
-        o Bug fix              John  2026-04-07 PM 08:45  a1b2c3d
-        o Add user list        John  2026-04-06 AM 10:30  e4f5g6h
-
-    > Local Branches
-        v main (current)
-          > (commit history + file list)
-        feature/login
-
-    > Remote Branches
-        origin/main
-        origin/develop
+    > Stashes
 ```
+
+> **History & Branches are rendered in a WebView**, enabling per-field brightness
+> (bright/dim) and fixed-width column alignment for commits (requirement 1). Changed
+> files and stashes stay in the native tree (better checkboxes, multi-select, file
+> icons) — a hybrid. Right-click menus on commits/branches and the top toolbar run the
+> existing commands unchanged.
 
 ---
 

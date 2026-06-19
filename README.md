@@ -36,29 +36,34 @@ Git QuickPick을 사용한 일반적인 개발 흐름:
 ## 사이드바 구조
 
 ```
-GIT QUICKPICK                    [전체 선택/해제][파일/트리 보기 전환][체크된 파일 커밋][푸시][풀][새로고침]
+GIT QUICKPICK
   메시지 입력
     커밋 메시지 입력 (Ctrl+Enter로 커밋)
     [Commit] 버튼 + 최근 메시지 히스토리
 
-  작업 공간
+  히스토리 · 브랜치 (WebView)        [⟳][＋][↑][↓][⤓][⤵][🧹][⚙]
+    v History
+        버그 수정            2026-04-07 PM 08:45  홍길동      a1b2c3d
+        사용자 목록 추가     2026-04-06 AM 10:30  홍길동      e4f5g6h
+    > Local Branches
+        v main (현재)
+            (그 브랜치 커밋 테이블)
+        feature/login
+    > Remote Branches
+        origin/main
+        ☁⤓ origin/develop (미페치)
+
+  작업 공간 (트리)
     v Changes          main . 2개 변경
         [v] web.xml     M    [변경 되돌리기] [파일 삭제]
         [v] App.java    M    [변경 되돌리기] [파일 삭제]
-
-    > History
-        o 버그 수정           홍길동  2026-04-07 PM 08:45  a1b2c3d
-        o 사용자 목록 추가    홍길동  2026-04-06 AM 10:30  e4f5g6h
-
-    > Local Branches
-        v main (현재)
-          > (커밋 히스토리 + 파일 목록)
-        feature/login
-
-    > Remote Branches
-        origin/main
-        origin/develop
+    > Stashes
 ```
+
+> **히스토리·브랜치는 WebView로 렌더**되어 커밋 필드별 밝기(bright/dim)와 고정폭 정렬이
+> 가능합니다(요구 1). 변경 파일·스태시는 체크박스·멀티셀렉트·파일 아이콘이 우월한 네이티브
+> 트리를 유지합니다(하이브리드). 커밋/브랜치 우클릭 메뉴와 상단 툴바로 기존 명령을 그대로
+> 실행합니다.
 
 ---
 

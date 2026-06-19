@@ -2,14 +2,20 @@
   "name": "git-reflow",
   "displayName": "Git QuickPick",
   "description": "%extension.description%",
-  "version": "0.9.5",
+  "version": "0.10.0",
   "publisher": "ddakker",
   "engines": {
     "vscode": "^1.74.0"
   },
-  "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
-  "extensionKind": ["workspace"],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
   "main": "./extension.js",
   "contributes": {
     "viewsContainers": {
@@ -28,6 +34,13 @@
           "name": "%view.commitInput%",
           "type": "webview",
           "initialSize": 1
+        },
+        {
+          "id": "gitQuickPickHistory",
+          "name": "%view.history%",
+          "type": "webview",
+          "contextualTitle": "Git QuickPick",
+          "initialSize": 3
         },
         {
           "id": "gitQuickPickChanges",
@@ -93,60 +106,287 @@
             "%config.commitFieldOrder.opt5%"
           ],
           "description": "%config.commitFieldOrder%"
+        },
+        "gitReflow.commitFieldStyles": {
+          "type": "object",
+          "default": {
+            "message": "bright",
+            "date": "dim",
+            "author": "dim",
+            "hash": "dim"
+          },
+          "description": "%config.commitFieldStyles%"
+        },
+        "gitReflow.commitFieldWidths": {
+          "type": "object",
+          "default": {
+            "date": 160,
+            "author": 90,
+            "hash": 70
+          },
+          "description": "%config.commitFieldWidths%"
+        },
+        "gitReflow.messageInputPosition": {
+          "type": "string",
+          "default": "top",
+          "enum": [
+            "top",
+            "bottom",
+            "hidden"
+          ],
+          "description": "%config.messageInputPosition%"
         }
       }
     },
     "commands": [
-      { "command": "gitReflow.rebasemergeLocal", "title": "%command.rebasemergeLocal%", "icon": "$(git-merge)" },
-      { "command": "gitReflow.rebasemergeRemote", "title": "%command.rebasemergeRemote%", "icon": "$(cloud-download)" },
-      { "command": "gitReflow.pullBranch", "title": "%command.pullBranch%", "icon": "$(arrow-down)" },
-      { "command": "gitReflow.push", "title": "%command.push%", "icon": "$(cloud-upload)" },
-      { "command": "gitReflow.commit", "title": "%command.commit%", "icon": "$(check)" },
-      { "command": "gitReflow.reset", "title": "%command.reset%", "icon": "$(discard)" },
-      { "command": "gitReflow.cherryPick", "title": "%command.cherryPick%", "icon": "$(record)" },
-      { "command": "gitReflow.history", "title": "%command.history%", "icon": "$(history)" },
-      { "command": "gitReflow.refreshView", "title": "%command.refresh%", "icon": "$(refresh)" },
-      { "command": "gitReflow.execPush", "title": "%command.execPush%", "icon": "$(cloud-upload)" },
-      { "command": "gitReflow.execForcePush", "title": "%command.execForcePush%", "icon": "$(warning)" },
-      { "command": "gitReflow.execForcePull", "title": "%command.execForcePull%", "icon": "$(warning)" },
-      { "command": "gitReflow.execPull", "title": "%command.execPull%", "icon": "$(arrow-down)" },
-      { "command": "gitReflow.execRebase", "title": "%command.execRebase%", "icon": "$(git-merge)" },
-      { "command": "gitReflow.execMerge", "title": "%command.execMerge%", "icon": "$(source-control)" },
-      { "command": "gitReflow.execCherryPick", "title": "%command.execCherryPick%", "icon": "$(record)" },
-      { "command": "gitReflow.execSoftReset", "title": "%command.execSoftReset%", "icon": "$(history)" },
-      { "command": "gitReflow.execHardReset", "title": "%command.execHardReset%", "icon": "$(warning)" },
-      { "command": "gitReflow.copyHash", "title": "%command.copyHash%", "icon": "$(clippy)" },
-      { "command": "gitReflow.copyMessage", "title": "%command.copyMessage%", "icon": "$(clippy)" },
-      { "command": "gitReflow.viewDiff", "title": "%command.viewDiff%", "icon": "$(diff)" },
-      { "command": "gitReflow.resetToHere", "title": "%command.resetToHere%", "icon": "$(discard)" },
-      { "command": "gitReflow.execSwitch", "title": "%command.execSwitch%", "icon": "$(arrow-swap)" },
-      { "command": "gitReflow.execCommit", "title": "%command.execCommit%", "icon": "$(play)" },
-      { "command": "gitReflow.toggleFileView", "title": "%command.toggleFileView%", "icon": "$(list-tree)" },
-      { "command": "gitReflow.stageFile", "title": "%command.stageFile%", "icon": "$(add)" },
-      { "command": "gitReflow.rollbackFile", "title": "%command.rollbackFile%", "icon": "$(reply)" },
-      { "command": "gitReflow.deleteFile", "title": "%command.deleteFile%", "icon": "$(trash)" },
-      { "command": "gitReflow.createBranch", "title": "%command.createBranch%", "icon": "$(add)" },
-      { "command": "gitReflow.execBranchPull", "title": "%command.execBranchPull%", "icon": "$(cloud-download)" },
-      { "command": "gitReflow.execForceBranchPull", "title": "%command.execForceBranchPull%", "icon": "$(warning)" },
-      { "command": "gitReflow.execDeleteBranch", "title": "%command.execDeleteBranch%", "icon": "$(trash)" },
-      { "command": "gitReflow.cleanupBackups", "title": "%command.cleanupBackups%", "icon": "$(trash)" },
-      { "command": "gitReflow.openSettings", "title": "%command.openSettings%", "icon": "$(gear)" },
-      { "command": "gitReflow.execDeleteRemoteBranch", "title": "%command.execDeleteRemoteBranch%", "icon": "$(trash)" },
-      { "command": "gitReflow.execInteractiveRebase", "title": "%command.execInteractiveRebase%", "icon": "$(edit)" },
-      { "command": "gitReflow.execAmendMessage", "title": "%command.execAmendMessage%", "icon": "$(edit)" },
-      { "command": "gitReflow.jumpToSource", "title": "%command.jumpToSource%", "icon": "$(go-to-file)" },
-      { "command": "gitReflow.openConflictMergeEditor", "title": "%command.openConflictMergeEditor%", "icon": "$(git-merge)" },
-      { "command": "gitReflow.openConflictInEditor", "title": "%command.openConflictInEditor%", "icon": "$(go-to-file)" },
-      { "command": "gitReflow.openCommitFileVsLocal", "title": "%command.openCommitFileVsLocal%", "icon": "$(compare-changes)" },
-      { "command": "gitReflow.copyPath", "title": "%command.copyPath%" },
-      { "command": "gitReflow.copyRelativePath", "title": "%command.copyRelativePath%" },
-      { "command": "gitReflow.addToGitignore", "title": "%command.addToGitignore%", "icon": "$(eye-closed)" },
-      { "command": "gitReflow.addForce", "title": "%command.addForce%", "icon": "$(add)" },
-      { "command": "gitReflow.createStash", "title": "%command.createStash%", "icon": "$(archive)" },
-      { "command": "gitReflow.stash", "title": "%command.stash%", "icon": "$(archive)" },
-      { "command": "gitReflow.stashPop", "title": "%command.stashPop%", "icon": "$(reply)" },
-      { "command": "gitReflow.stashApply", "title": "%command.stashApply%", "icon": "$(check)" },
-      { "command": "gitReflow.stashDrop", "title": "%command.stashDrop%", "icon": "$(trash)" }
+      {
+        "command": "gitReflow.rebasemergeLocal",
+        "title": "%command.rebasemergeLocal%",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "gitReflow.rebasemergeRemote",
+        "title": "%command.rebasemergeRemote%",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "gitReflow.pullBranch",
+        "title": "%command.pullBranch%",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "gitReflow.push",
+        "title": "%command.push%",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "gitReflow.commit",
+        "title": "%command.commit%",
+        "icon": "$(check)"
+      },
+      {
+        "command": "gitReflow.reset",
+        "title": "%command.reset%",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "gitReflow.cherryPick",
+        "title": "%command.cherryPick%",
+        "icon": "$(record)"
+      },
+      {
+        "command": "gitReflow.history",
+        "title": "%command.history%",
+        "icon": "$(history)"
+      },
+      {
+        "command": "gitReflow.refreshView",
+        "title": "%command.refresh%",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gitReflow.execPush",
+        "title": "%command.execPush%",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "gitReflow.execForcePush",
+        "title": "%command.execForcePush%",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "gitReflow.execForcePull",
+        "title": "%command.execForcePull%",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "gitReflow.execPull",
+        "title": "%command.execPull%",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "gitReflow.execRebase",
+        "title": "%command.execRebase%",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "gitReflow.execMerge",
+        "title": "%command.execMerge%",
+        "icon": "$(source-control)"
+      },
+      {
+        "command": "gitReflow.execCherryPick",
+        "title": "%command.execCherryPick%",
+        "icon": "$(record)"
+      },
+      {
+        "command": "gitReflow.execSoftReset",
+        "title": "%command.execSoftReset%",
+        "icon": "$(history)"
+      },
+      {
+        "command": "gitReflow.execHardReset",
+        "title": "%command.execHardReset%",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "gitReflow.copyHash",
+        "title": "%command.copyHash%",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "gitReflow.copyMessage",
+        "title": "%command.copyMessage%",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "gitReflow.viewDiff",
+        "title": "%command.viewDiff%",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "gitReflow.resetToHere",
+        "title": "%command.resetToHere%",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "gitReflow.execSwitch",
+        "title": "%command.execSwitch%",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "gitReflow.execCommit",
+        "title": "%command.execCommit%",
+        "icon": "$(play)"
+      },
+      {
+        "command": "gitReflow.toggleFileView",
+        "title": "%command.toggleFileView%",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "gitReflow.stageFile",
+        "title": "%command.stageFile%",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gitReflow.rollbackFile",
+        "title": "%command.rollbackFile%",
+        "icon": "$(reply)"
+      },
+      {
+        "command": "gitReflow.deleteFile",
+        "title": "%command.deleteFile%",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "gitReflow.createBranch",
+        "title": "%command.createBranch%",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gitReflow.execBranchPull",
+        "title": "%command.execBranchPull%",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "gitReflow.execForceBranchPull",
+        "title": "%command.execForceBranchPull%",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "gitReflow.execDeleteBranch",
+        "title": "%command.execDeleteBranch%",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "gitReflow.cleanupBackups",
+        "title": "%command.cleanupBackups%",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "gitReflow.openSettings",
+        "title": "%command.openSettings%",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "gitReflow.execDeleteRemoteBranch",
+        "title": "%command.execDeleteRemoteBranch%",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "gitReflow.execInteractiveRebase",
+        "title": "%command.execInteractiveRebase%",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gitReflow.execAmendMessage",
+        "title": "%command.execAmendMessage%",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gitReflow.jumpToSource",
+        "title": "%command.jumpToSource%",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "gitReflow.openConflictMergeEditor",
+        "title": "%command.openConflictMergeEditor%",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "gitReflow.openConflictInEditor",
+        "title": "%command.openConflictInEditor%",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "gitReflow.openCommitFileVsLocal",
+        "title": "%command.openCommitFileVsLocal%",
+        "icon": "$(compare-changes)"
+      },
+      {
+        "command": "gitReflow.copyPath",
+        "title": "%command.copyPath%"
+      },
+      {
+        "command": "gitReflow.copyRelativePath",
+        "title": "%command.copyRelativePath%"
+      },
+      {
+        "command": "gitReflow.addToGitignore",
+        "title": "%command.addToGitignore%",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "gitReflow.addForce",
+        "title": "%command.addForce%",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gitReflow.createStash",
+        "title": "%command.createStash%",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "gitReflow.stash",
+        "title": "%command.stash%",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "gitReflow.stashPop",
+        "title": "%command.stashPop%",
+        "icon": "$(reply)"
+      },
+      {
+        "command": "gitReflow.stashApply",
+        "title": "%command.stashApply%",
+        "icon": "$(check)"
+      },
+      {
+        "command": "gitReflow.stashDrop",
+        "title": "%command.stashDrop%",
+        "icon": "$(trash)"
+      }
     ],
     "menus": {
       "view/title": [
@@ -318,21 +558,6 @@
           "group": "0_inline@2"
         },
         {
-          "command": "gitReflow.jumpToSource",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == historyFile",
-          "group": "inline@1"
-        },
-        {
-          "command": "gitReflow.jumpToSource",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == historyFile",
-          "group": "0_inline@1"
-        },
-        {
-          "command": "gitReflow.openCommitFileVsLocal",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == historyFile",
-          "group": "1_actions@1"
-        },
-        {
           "command": "gitReflow.copyPath",
           "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem =~ /^file(Untracked|Modified|Deleted|Other|Conflict)$/",
           "group": "9_copy@1"
@@ -341,116 +566,6 @@
           "command": "gitReflow.copyRelativePath",
           "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem =~ /^file(Untracked|Modified|Deleted|Other|Conflict)$/",
           "group": "9_copy@2"
-        },
-        {
-          "command": "gitReflow.copyHash",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem =~ /^historyCommit/",
-          "group": "1_actions@1"
-        },
-        {
-          "command": "gitReflow.copyMessage",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem =~ /^historyCommit/",
-          "group": "1_actions@2"
-        },
-        {
-          "command": "gitReflow.execAmendMessage",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == historyCommitLatest",
-          "group": "1_actions@3"
-        },
-        {
-          "command": "gitReflow.execInteractiveRebase",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem =~ /^historyCommit/",
-          "group": "1_actions@4"
-        },
-        {
-          "command": "gitReflow.execSoftReset",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem =~ /^historyCommit/",
-          "group": "2_reset@1"
-        },
-        {
-          "command": "gitReflow.execHardReset",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem =~ /^historyCommit/",
-          "group": "2_reset@2"
-        },
-        {
-          "command": "gitReflow.execSwitch",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == localBranch",
-          "group": "1_actions@1"
-        },
-        {
-          "command": "gitReflow.execBranchPull",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == localBranch",
-          "group": "1_actions@2"
-        },
-        {
-          "command": "gitReflow.execForceBranchPull",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == localBranch",
-          "group": "1_actions@3"
-        },
-        {
-          "command": "gitReflow.execRebase",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == localBranch",
-          "group": "2_merge@1"
-        },
-        {
-          "command": "gitReflow.execMerge",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == localBranch",
-          "group": "2_merge@2"
-        },
-        {
-          "command": "gitReflow.execDeleteBranch",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == localBranch",
-          "group": "9_danger@1"
-        },
-        {
-          "command": "gitReflow.execSwitch",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == remoteBranch",
-          "group": "1_actions@1"
-        },
-        {
-          "command": "gitReflow.execRebase",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == remoteBranch",
-          "group": "1_actions@2"
-        },
-        {
-          "command": "gitReflow.execMerge",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == remoteBranch",
-          "group": "1_actions@3"
-        },
-        {
-          "command": "gitReflow.execDeleteRemoteBranch",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == remoteBranch",
-          "group": "9_danger@1"
-        },
-        {
-          "command": "gitReflow.copyHash",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == branchHistoryCommit",
-          "group": "1_actions@1"
-        },
-        {
-          "command": "gitReflow.copyMessage",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == branchHistoryCommit",
-          "group": "1_actions@2"
-        },
-        {
-          "command": "gitReflow.execCherryPick",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == branchHistoryCommit",
-          "group": "2_actions@1"
-        },
-        {
-          "command": "gitReflow.execBranchPull",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == localBranchCurrent",
-          "group": "1_actions@1"
-        },
-        {
-          "command": "gitReflow.execForceBranchPull",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == localBranchCurrent",
-          "group": "1_actions@2"
-        },
-        {
-          "command": "gitReflow.createBranch",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == localBranchSection",
-          "group": "1_actions@1"
         },
         {
           "command": "gitReflow.createStash",
