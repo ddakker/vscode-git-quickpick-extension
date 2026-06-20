@@ -94,13 +94,74 @@ describe('메뉴 계약 (master 트리 메뉴와 동일 구성)', () => {
   test('localBranchSection: 브랜치 생성', () => {
     assert.deepEqual(cmds('localBranchSection'), ['gitReflow.createBranch']);
   });
-  test('commitFile: 열기(커밋 소스) / 로컬과 비교', () => {
+  test('commitFile: 변경 비교 / 로컬과 비교 / 열기(커밋 소스)', () => {
     assert.deepEqual(cmds('commitFile'),
-      ['gitReflow.openCommitFileContent', 'gitReflow.openCommitFileVsLocal']);
+      ['gitReflow.openCommitFileDiff', 'gitReflow.openCommitFileVsLocal', 'gitReflow.openCommitFileContent']);
   });
   test('모든 메뉴 항목은 label 과 command 를 가짐', () => {
     for (const items of Object.values(menu)) {
       for (const it of items) assert.ok(it.command && it.label, `누락: ${JSON.stringify(it)}`);
     }
+  });
+});
+
+describe('입력창 표시 (showInputWhenChecked)', () => {
+  // 옵션값을 주입한 채 fn 실행
+  function withOption(on, fn) {
+    const orig = stub.workspace.getConfiguration;
+    stub.workspace.getConfiguration = () => ({
+      get: (key, def) => (key === 'showInputWhenChecked' ? on : (def === undefined ? null : def)),
+      update: () => Promise.resolve(), has: () => false, inspect: () => undefined,
+    });
+    try { return fn(); } finally { stub.workspace.getConfiguration = orig; }
+  }
+  function makeProvider() {
+    const posted = [];
+    const p = new HistoryViewProvider({ get: () => [], update: () => {} });
+    p._view = { webview: { postMessage: (m) => posted.push(m) }, description: '' };
+    return { p, posted };
+  }
+  const lastVisible = (posted) => posted.filter(m => m.type === 'inputVisible').pop();
+
+  test('옵션 OFF: 항상 표시(visible=true)', () => {
+    withOption(false, () => {
+      const { p, posted } = makeProvider();
+      p.updateInputVisibility();
+      assert.equal(lastVisible(posted).visible, true);
+    });
+  });
+
+  test('옵션 ON + 체크 없음: 숨김(visible=false)', () => {
+    withOption(true, () => {
+      const { p, posted } = makeProvider();
+      p.updateInputVisibility();
+      assert.equal(lastVisible(posted).visible, false);
+    });
+  });
+
+  test('옵션 ON + 체크됨: 표시', () => {
+    withOption(true, () => {
+      const { p, posted } = makeProvider();
+      p._checkedFiles.set('a.txt', true);
+      p.updateInputVisibility();
+      assert.equal(lastVisible(posted).visible, true);
+    });
+  });
+
+  test('옵션 ON + 트리 체크 주입: 표시', () => {
+    withOption(true, () => {
+      const { p, posted } = makeProvider();
+      p.setExternalCheckedState(true);
+      assert.equal(lastVisible(posted).visible, true);
+    });
+  });
+
+  test('옵션 ON + 대기 흐름(pendingResolve): 체크 없어도 표시', () => {
+    withOption(true, () => {
+      const { p, posted } = makeProvider();
+      p._pendingResolve = () => {};
+      p.updateInputVisibility();
+      assert.equal(lastVisible(posted).visible, true);
+    });
   });
 });

@@ -6,11 +6,22 @@
 // (vscode 스텁 필요 — readCommitConfig 가 설정을 읽음)
 // ─────────────────────────────────────────────────────────────────────
 
-require('./vscode-stub');
+const stub = require('./vscode-stub');
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const { buildState } = require('../src/webview/build-state');
+
+// workspaceInWebview 옵션을 켠 채로 fn 실행 (설정 스텁 일시 오버라이드)
+async function withWorkspaceOption(fn) {
+  const orig = stub.workspace.getConfiguration;
+  stub.workspace.getConfiguration = () => ({
+    get: (key, def) => (key === 'workspaceInWebview' ? true : (def === undefined ? null : def)),
+    update: () => Promise.resolve(), has: () => false, inspect: () => undefined,
+  });
+  try { return await fn(); }
+  finally { stub.workspace.getConfiguration = orig; }
+}
 
 // 호출을 기록하는 가짜 git 조회 deps
 function makeDeps(over = {}) {
@@ -26,6 +37,9 @@ function makeDeps(over = {}) {
       getCommitLog: rec('getCommitLog', [{ hash: 'h1', message: 'm', author: 'a', date: 'd' }]),
       ensureRemoteBranchFetched: rec('ensureRemoteBranchFetched'),
       getCommitFiles: rec('getCommitFiles', [{ statusCode: 'M', filePath: 'a.txt' }]),
+      getChangedFiles: rec('getChangedFiles', [{ filePath: 'a.txt', statusCode: 'M', isStaged: false, isConflict: false }]),
+      getStashList: rec('getStashList', [{ ref: 'stash@{0}', index: 0, message: 'wip', relTime: '1h' }]),
+      getStashFiles: rec('getStashFiles', [{ statusCode: 'M', filePath: 'b.txt' }]),
       ...over,
     },
   };
@@ -51,6 +65,27 @@ describe('buildState', () => {
     const state = await buildState('/x', { history: true }, deps);
     assert.ok(calls.includes('getCommitLog'));
     assert.equal(state.history.length, 1);
+  });
+
+  test('history 조회에 historyCount(기본 10) 전달', async () => {
+    let opts;
+    const { deps } = makeDeps({ getCommitLog: (_cwd, o) => { opts = o; return Promise.resolve([]); } });
+    await buildState('/x', { history: true }, deps);
+    assert.equal(opts.count, 10);
+  });
+
+  test('historyCount 설정값을 조회에 전달', async () => {
+    const orig = stub.workspace.getConfiguration;
+    stub.workspace.getConfiguration = () => ({
+      get: (k, d) => (k === 'historyCount' ? 25 : (d === undefined ? null : d)),
+      update: () => Promise.resolve(), has: () => false, inspect: () => undefined,
+    });
+    try {
+      let opts;
+      const { deps } = makeDeps({ getCommitLog: (_cwd, o) => { opts = o; return Promise.resolve([]); } });
+      await buildState('/x', { history: true }, deps);
+      assert.equal(opts.count, 25);
+    } finally { stub.workspace.getConfiguration = orig; }
   });
 
   test('inProgress 감지', async () => {
@@ -103,5 +138,43 @@ describe('buildState', () => {
     const state = await buildState('/x', { history: true, localBranch: true }, deps);
     assert.deepEqual(state.history, []);
     assert.deepEqual(state.localBranches, []);
+  });
+
+  test('옵션 OFF: 변경/스태시 미조회', async () => {
+    const { calls, deps } = makeDeps();
+    const state = await buildState('/x', {}, deps);
+    assert.equal(state.workspaceInWebview, false);
+    assert.ok(!calls.includes('getChangedFiles'));
+    assert.equal(state.changes, null);
+  });
+
+  test('옵션 ON: 변경 사항은 항상 조회 (스태시는 접힘이라 미조회)', async () => {
+    await withWorkspaceOption(async () => {
+      const { calls, deps } = makeDeps();
+      const state = await buildState('/x', {}, deps);
+      assert.equal(state.workspaceInWebview, true);
+      assert.ok(calls.includes('getChangedFiles'));
+      assert.equal(state.changes.length, 1);
+      assert.ok(!calls.includes('getStashList')); // 스태시 섹션 접힘
+      assert.equal(state.stashes, null);
+    });
+  });
+
+  test('옵션 ON + 스태시 펼침: getStashList 호출', async () => {
+    await withWorkspaceOption(async () => {
+      const { calls, deps } = makeDeps();
+      const state = await buildState('/x', { stash: true }, deps);
+      assert.ok(calls.includes('getStashList'));
+      assert.equal(state.stashes.length, 1);
+    });
+  });
+
+  test('옵션 ON + 스태시 항목 펼침(__stashFiles): getStashFiles 호출', async () => {
+    await withWorkspaceOption(async () => {
+      const { calls, deps } = makeDeps();
+      const state = await buildState('/x', { stash: true, __stashFiles: ['stash@{0}'] }, deps);
+      assert.ok(calls.includes('getStashFiles'));
+      assert.deepEqual(state.stashFiles['stash@{0}'], [{ statusCode: 'M', filePath: 'b.txt' }]);
+    });
   });
 });

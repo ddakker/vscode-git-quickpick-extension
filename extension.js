@@ -404,8 +404,12 @@ function activate(context) {
   });
   context.subscriptions.push(treeView);
 
-  // 변경 사항(체크박스/커밋)을 다루는 provider — 작업 공간 트리 하나
-  const activeChangesProvider = () => treeProvider;
+  // 변경/스태시를 웹뷰로 옮기는 옵션. ON 이면 트리 대신 historyProvider 가 변경 제공자.
+  const workspaceOn = () =>
+    vscode.workspace.getConfiguration('gitReflow').get('workspaceInWebview', false) === true;
+
+  // 변경 사항(체크박스/커밋)을 다루는 provider — 옵션에 따라 트리 또는 웹뷰
+  const activeChangesProvider = () => (workspaceOn() ? historyProvider : treeProvider);
 
   // Ctrl+Enter / 웹뷰 커밋 버튼으로 커밋
   context.subscriptions.push(
@@ -432,13 +436,18 @@ function activate(context) {
   function updateCheckedFilesContext() {
     const hasChecked = [...treeProvider._checkedFiles.values()].some(v => v);
     vscode.commands.executeCommand('setContext', 'gitReflow.hasCheckedFiles', hasChecked);
+    // 트리 모드(옵션 OFF)의 체크 상태를 webview 입력창 표시(showInputWhenChecked)에 반영.
+    historyProvider.setExternalCheckedState(hasChecked);
   }
 
   treeProvider.updateStatus = async function () {
     await origUpdateStatus();
     updateTitleDescription();
-    vscode.commands.executeCommand('setContext', 'gitReflow.hasChanges', treeProvider._changeCount > 0);
-    updateCheckedFilesContext();
+    // 옵션 ON 이면 변경 컨텍스트는 historyProvider 가 관리(웹뷰 체크 상태 기준).
+    if (!workspaceOn()) {
+      vscode.commands.executeCommand('setContext', 'gitReflow.hasChanges', treeProvider._changeCount > 0);
+      updateCheckedFilesContext();
+    }
   };
   treeProvider.updateStatus();
 
@@ -486,10 +495,28 @@ function activate(context) {
     treeView.onDidChangeCheckboxState(e => handleCheckboxChange(treeProvider, e))
   );
 
-  // 파일 저장 시 상태 갱신
+  // 작업 공간 상태 갱신 (트리 + 옵션 ON 이면 웹뷰 변경 목록)
+  function refreshWorkspaceStatus() {
+    treeProvider.updateStatus();
+    if (workspaceOn()) historyProvider.reload();
+  }
+
+  // 파일 저장 시 갱신 (기존 파일 수정 반영)
   context.subscriptions.push(
-    vscode.workspace.onDidSaveTextDocument(() => treeProvider.updateStatus())
+    vscode.workspace.onDidSaveTextDocument(() => refreshWorkspaceStatus())
   );
+
+  // 파일 생성/삭제 감시 — 새 파일 추가/삭제도 즉시 반영(저장 이벤트가 없어 누락되던 문제).
+  // 일괄 변경(체크아웃/npm 등)에서 폭주하지 않도록 짧게 디바운스.
+  let fsRefreshTimer = null;
+  function scheduleWorkspaceRefresh() {
+    if (fsRefreshTimer) clearTimeout(fsRefreshTimer);
+    fsRefreshTimer = setTimeout(() => { fsRefreshTimer = null; refreshWorkspaceStatus(); }, 150);
+  }
+  const fsWatcher = vscode.workspace.createFileSystemWatcher('**/*');
+  fsWatcher.onDidCreate(scheduleWorkspaceRefresh);
+  fsWatcher.onDidDelete(scheduleWorkspaceRefresh);
+  context.subscriptions.push(fsWatcher);
 
   // 커밋 표시 설정이 바뀌면 즉시 반영
   context.subscriptions.push(
@@ -501,6 +528,26 @@ function activate(context) {
       }
       if (e.affectsConfiguration('gitReflow.messageInputPosition')) {
         historyProvider.updateInputPosition();
+      }
+      if (e.affectsConfiguration('gitReflow.showInputWhenChecked')) {
+        historyProvider.updateInputVisibility();
+      }
+      // 히스토리 개수 변경 → 캐시 무효화 후 다시 조회
+      if (e.affectsConfiguration('gitReflow.historyCount')) {
+        historyProvider.reload();
+      }
+      // 언어 변경은 로드 시점에 해석되므로 창 새로고침 안내
+      if (e.affectsConfiguration('gitReflow.language')) {
+        vscode.window.showInformationMessage(t('reloadForLanguage'), t('reloadWindow'))
+          .then(pick => {
+            if (pick === t('reloadWindow')) vscode.commands.executeCommand('workbench.action.reloadWindow');
+          });
+      }
+      // 변경/스태시 웹뷰 이동 옵션 토글 → 뷰 표시는 package.json when 절이 처리,
+      // 데이터/컨텍스트는 양쪽 provider 를 갱신해 즉시 반영.
+      if (e.affectsConfiguration('gitReflow.workspaceInWebview')) {
+        historyProvider.reload();
+        treeProvider.updateStatus();
       }
     })
   );
@@ -539,8 +586,11 @@ function activate(context) {
     treeProvider._commitSectionItem = null;
     treeProvider.refresh();
     updateTitleDescription();
-    vscode.commands.executeCommand('setContext', 'gitReflow.hasChanges', treeProvider._changeCount > 0);
-    updateCheckedFilesContext();
+    // 옵션 ON 이면 변경 컨텍스트는 historyProvider.reload() 가 관리.
+    if (!workspaceOn()) {
+      vscode.commands.executeCommand('setContext', 'gitReflow.hasChanges', treeProvider._changeCount > 0);
+      updateCheckedFilesContext();
+    }
     historyProvider.reload(); // 데이터 바뀜 → 캐시 무효화 후 갱신
   }
   runtime.setFullRefreshFn(fullRefresh);

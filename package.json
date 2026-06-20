@@ -39,7 +39,8 @@
         {
           "id": "gitQuickPickView",
           "name": "%view.workspace%",
-          "contextualTitle": "Git QuickPick"
+          "contextualTitle": "Git QuickPick",
+          "when": "!config.gitReflow.workspaceInWebview"
         }
       ]
     },
@@ -103,13 +104,43 @@
         },
         "gitReflow.messageInputPosition": {
           "type": "string",
-          "default": "top",
+          "default": "bottom",
           "enum": [
             "top",
-            "bottom",
-            "hidden"
+            "bottom"
           ],
           "description": "%config.messageInputPosition%"
+        },
+        "gitReflow.workspaceInWebview": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.workspaceInWebview%"
+        },
+        "gitReflow.showInputWhenChecked": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.showInputWhenChecked%"
+        },
+        "gitReflow.historyCount": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "description": "%config.historyCount%"
+        },
+        "gitReflow.language": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "ko",
+            "en"
+          ],
+          "enumDescriptions": [
+            "%config.language.auto%",
+            "%config.language.ko%",
+            "%config.language.en%"
+          ],
+          "description": "%config.language%"
         }
       }
     },
@@ -367,7 +398,7 @@
       "view/title": [
         {
           "command": "gitReflow.toggleFileView",
-          "when": "view == gitQuickPickHistory && gitReflow.hasChanges",
+          "when": "view == gitQuickPickHistory && gitReflow.hasChanges && !config.gitReflow.workspaceInWebview",
           "group": "navigation@2"
         },
         {

@@ -16,7 +16,8 @@ const { resolveCommitFieldOrder } = require('../../lib/commit-format');
 
 const DEFAULT_FIELD_STYLES = { message: 'bright', date: 'dim', author: 'dim', hash: 'dim' };
 const DEFAULT_FIELD_WIDTHS = { date: 160, author: 90, hash: 70 };
-const DEFAULT_INPUT_POSITION = 'top';
+const DEFAULT_INPUT_POSITION = 'bottom';
+const DEFAULT_HISTORY_COUNT = 10;
 
 // vscode 설정에서 커밋 표시 설정을 읽는다 (null/누락 시 기본값 폴백).
 function readCommitConfig() {
@@ -25,11 +26,14 @@ function readCommitConfig() {
   const styles = cfg.get('commitFieldStyles', null);
   const widths = cfg.get('commitFieldWidths', null);
   const pos = cfg.get('messageInputPosition', null);
+  const hc = cfg.get('historyCount', DEFAULT_HISTORY_COUNT);
   return {
     fieldOrder,
     fieldStyles: styles && typeof styles === 'object' ? { ...DEFAULT_FIELD_STYLES, ...styles } : DEFAULT_FIELD_STYLES,
     fieldWidths: widths && typeof widths === 'object' ? { ...DEFAULT_FIELD_WIDTHS, ...widths } : DEFAULT_FIELD_WIDTHS,
-    messageInputPosition: ['top', 'bottom', 'hidden'].includes(pos) ? pos : DEFAULT_INPUT_POSITION,
+    messageInputPosition: ['top', 'bottom'].includes(pos) ? pos : DEFAULT_INPUT_POSITION,
+    workspaceInWebview: cfg.get('workspaceInWebview', false) === true,
+    historyCount: Number.isInteger(hc) && hc > 0 ? hc : DEFAULT_HISTORY_COUNT,
   };
 }
 
@@ -43,10 +47,12 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
   const {
     getCurrentBranch, hasInProgressOperation, getLocalBranches,
     getRemoteBranches, getCommitLog, ensureRemoteBranchFetched, getCommitFiles,
+    getChangedFiles, getStashList, getStashFiles,
   } = deps;
 
   cache.branchHistory = cache.branchHistory || {};
   cache.commitFiles = cache.commitFiles || {};
+  cache.stashFiles = cache.stashFiles || {};
 
   const config = readCommitConfig();
   const state = {
@@ -57,6 +63,10 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
     remoteBranches: null,
     branchHistory: {},
     commitFiles: {},        // { [hash]: [{statusCode, filePath}] } — 펼친 커밋만
+    workspaceInWebview: config.workspaceInWebview,
+    changes: null,          // [{filePath,statusCode,isStaged,isConflict}] — 옵션 ON 일 때만
+    stashes: null,          // [{ref,index,message,relTime}] — 스태시 섹션 펼침 시
+    stashFiles: {},         // { [ref]: [{statusCode,filePath}] } — 펼친 스태시 항목만
     expanded: { ...expanded },
     config,
   };
@@ -68,9 +78,9 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
   state.inProgress = cache.inProgress;
   state.currentBranch = cache.currentBranch;
 
-  // 히스토리 — 펼쳤을 때만 조회 (lazy + 캐시)
+  // 히스토리 — 펼쳤을 때만 조회 (lazy + 캐시). 개수는 historyCount 설정.
   if (expanded.history) {
-    if (!cache.history) cache.history = await getCommitLog(cwd);
+    if (!cache.history) cache.history = await getCommitLog(cwd, { count: config.historyCount });
     state.history = cache.history;
   }
 
@@ -105,7 +115,7 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
       if (remote && remote.unfetched && ensureRemoteBranchFetched) {
         await ensureRemoteBranchFetched(cwd, name);
       }
-      cache.branchHistory[name] = await getCommitLog(cwd, { branch: name });
+      cache.branchHistory[name] = await getCommitLog(cwd, { branch: name, count: config.historyCount });
     } catch {
       cache.branchHistory[name] = [];
     }
@@ -123,6 +133,36 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
       cache.commitFiles[hash] = [];
     }
     state.commitFiles[hash] = cache.commitFiles[hash];
+  }
+
+  // ─── 변경 사항 + 스태시 (옵션 ON 일 때만) ─────────────────────────
+  // 변경 파일은 자주 바뀌므로 캐시를 두되, reload() 가 cache 를 비워 갱신한다.
+  if (config.workspaceInWebview) {
+    if (getChangedFiles) {
+      if (!cache.changes) cache.changes = await getChangedFiles(cwd);
+      state.changes = cache.changes;
+    } else {
+      state.changes = [];
+    }
+
+    // 스태시 목록 — 펼쳤을 때만 조회 (lazy + 캐시)
+    if (expanded.stash && getStashList) {
+      if (!cache.stashes) cache.stashes = await getStashList(cwd);
+      state.stashes = cache.stashes;
+    }
+
+    // 펼친 스태시 항목의 파일 목록 (캐시)
+    const expandedStashes = Array.isArray(expanded.__stashFiles) ? expanded.__stashFiles : [];
+    for (const ref of expandedStashes) {
+      if (!getStashFiles) break;
+      if (cache.stashFiles[ref]) { state.stashFiles[ref] = cache.stashFiles[ref]; continue; }
+      try {
+        cache.stashFiles[ref] = await getStashFiles(cwd, ref);
+      } catch {
+        cache.stashFiles[ref] = [];
+      }
+      state.stashFiles[ref] = cache.stashFiles[ref];
+    }
   }
 
   return state;

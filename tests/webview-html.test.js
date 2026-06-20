@@ -8,7 +8,9 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { renderLists, renderShell, renderCommitRow, esc } = require('../lib/webview-html');
+const {
+  renderLists, renderShell, renderCommitRow, renderChanges, renderStash, esc,
+} = require('../lib/webview-html');
 
 const CONFIG = {
   fieldOrder: ['message', 'date', 'author', 'hash'],
@@ -105,6 +107,123 @@ describe('renderLists', () => {
   });
 });
 
+// 변경/스태시 렌더용 라벨
+const WS_LABELS = {
+  ...LABELS,
+  sectionCommit: '변경 사항', sectionStash: '스태시',
+  selectAll: '전체 선택/해제', toggleFileView: '보기 전환',
+  noChanges: '변경 없음', noStash: '스태시 없음', noDiffFiles: '파일 없음',
+};
+
+describe('renderChanges', () => {
+  const changes = [
+    { filePath: 'src/a.js', statusCode: 'M', isStaged: false, isConflict: false },
+    { filePath: 'b.txt', statusCode: '?', isStaged: false, isConflict: false },
+    { filePath: 'd.txt', statusCode: 'D', isStaged: false, isConflict: false },
+  ];
+  const base = (over = {}) => ({
+    expanded: { changes: true }, changes,
+    checkedFiles: new Set(), fileViewMode: 'list', ...over,
+  });
+
+  test('list 모드: 파일별 체크박스 + contextValue + 전체선택', () => {
+    const html = renderChanges(base(), WS_LABELS);
+    assert.equal((html.match(/data-kind="changedFile"/g) || []).length, 3);
+    assert.ok(html.includes('data-kind="selectAll"'));
+    assert.ok(html.includes('data-ctx="fileModified"'));
+    assert.ok(html.includes('data-ctx="fileUntracked"'));
+    assert.ok(html.includes('data-ctx="fileDeleted"'));
+    assert.ok(html.includes('type="checkbox"'));
+    assert.ok(html.includes('data-path="src/a.js"'));
+  });
+
+  test('체크된 파일은 checkbox checked', () => {
+    const html = renderChanges(base({ checkedFiles: new Set(['b.txt']) }), WS_LABELS);
+    // b.txt 행에 checked 가 있고, 전체선택은 모두 체크 아님
+    const row = html.split('data-path="b.txt"')[0].split('class="chfile"').pop();
+    assert.ok(html.includes('data-path="b.txt"'));
+    assert.ok(/checked/.test(html));
+  });
+
+  test('전체 체크 시 selectAll 도 checked', () => {
+    const all = new Set(['src/a.js', 'b.txt', 'd.txt']);
+    const html = renderChanges(base({ checkedFiles: all }), WS_LABELS);
+    const selRow = html.substring(html.indexOf('data-kind="selectAll"'));
+    assert.ok(selRow.startsWith('data-kind="selectAll"'));
+    // selectAll 입력에 checked 포함
+    const selInput = selRow.substring(0, selRow.indexOf('</div>'));
+    assert.ok(selInput.includes('checked'));
+  });
+
+  test('tree 모드: 디렉터리 폴더행 렌더', () => {
+    const html = renderChanges(base({ fileViewMode: 'tree' }), WS_LABELS);
+    assert.ok(html.includes('class="chdir"'));
+    assert.ok(html.includes('chdir-body'));
+    assert.ok(html.includes('>src<')); // 폴더 이름
+  });
+
+  test('변경 없음 → noChanges', () => {
+    const html = renderChanges(base({ changes: [] }), WS_LABELS);
+    assert.ok(html.includes('변경 없음'));
+  });
+
+  test('list/tree 보기 전환 토글 버튼 포함', () => {
+    const html = renderChanges(base(), WS_LABELS);
+    assert.ok(html.includes('data-kind="fileViewToggle"'));
+  });
+});
+
+describe('renderStash', () => {
+  const stashes = [{ ref: 'stash@{0}', index: 0, message: 'wip', relTime: '1h' }];
+  test('접힘: 본문 없음', () => {
+    const html = renderStash({ expanded: {}, stashes, stashFiles: {} }, WS_LABELS);
+    assert.ok(html.includes('aria-expanded="false"'));
+    assert.ok(!html.includes('data-kind="stash"'));
+  });
+  test('펼침: 스태시 항목 행 + 메뉴 ctx', () => {
+    const html = renderStash({ expanded: { stash: true }, stashes, stashFiles: {} }, WS_LABELS);
+    assert.ok(html.includes('data-kind="stash"'));
+    assert.ok(html.includes('data-ctx="stashEntry"'));
+    assert.ok(html.includes('data-ref="stash@{0}"'));
+    assert.ok(html.includes('wip'));
+  });
+  test('항목 펼침: 파일 목록 렌더', () => {
+    const sf = { 'stash@{0}': [{ statusCode: 'M', filePath: 'b.txt' }] };
+    const html = renderStash({ expanded: { stash: true }, stashes, stashFiles: sf }, WS_LABELS);
+    assert.ok(html.includes('data-kind="stashFile"'));
+    assert.ok(html.includes('data-path="b.txt"'));
+  });
+  test('스태시 없음 → noStash', () => {
+    const html = renderStash({ expanded: { stash: true }, stashes: [], stashFiles: {} }, WS_LABELS);
+    assert.ok(html.includes('스태시 없음'));
+  });
+});
+
+describe('renderLists + workspaceInWebview', () => {
+  const base = {
+    inProgress: null, currentBranch: 'main', history: [COMMIT],
+    localBranches: null, remoteBranches: null, branchHistory: {}, commitFiles: {},
+    expanded: { history: true, changes: true }, config: CONFIG,
+    workspaceInWebview: true,
+    changes: [{ filePath: 'a.txt', statusCode: 'M', isStaged: false, isConflict: false }],
+    checkedFiles: new Set(), fileViewMode: 'list', stashes: null, stashFiles: {},
+  };
+  test('옵션 ON: 변경 섹션이 히스토리보다 앞', () => {
+    const html = renderLists(base, WS_LABELS);
+    assert.ok(html.includes('data-section="changes"'));
+    assert.ok(html.indexOf('data-section="changes"') < html.indexOf('data-section="history"'));
+  });
+  test('옵션 ON: 스태시 섹션이 맨 뒤(원격 뒤)', () => {
+    const html = renderLists(base, WS_LABELS);
+    assert.ok(html.indexOf('data-section="stash"') > html.indexOf('data-section="remoteBranch"'));
+  });
+  test('옵션 OFF: 변경/스태시 섹션 없음', () => {
+    const html = renderLists({ ...base, workspaceInWebview: false }, WS_LABELS);
+    assert.ok(!html.includes('data-section="changes"'));
+    assert.ok(!html.includes('data-section="stash"'));
+  });
+});
+
 describe('renderShell', () => {
   const opts = (pos) => ({
     nonce: 'N0NCE', cspSource: 'vscode-resource:',
@@ -124,12 +243,12 @@ describe('renderShell', () => {
     assert.ok(shell.includes('id="msg"'));
     assert.ok(shell.includes('id="commitBtn"'));
   });
-  test('messageInputPosition → body class (top/bottom/hidden)', () => {
+  test('messageInputPosition → body class (top/bottom)', () => {
     assert.ok(renderShell(opts('top')).includes('<body class="pos-top">'));
     assert.ok(renderShell(opts('bottom')).includes('<body class="pos-bottom">'));
-    assert.ok(renderShell(opts('hidden')).includes('<body class="pos-hidden">'));
   });
-  test('잘못된 position 은 top 으로 폴백', () => {
-    assert.ok(renderShell(opts('bogus')).includes('<body class="pos-top">'));
+  test('제거된 hidden/잘못된 position 은 bottom 으로 폴백', () => {
+    assert.ok(renderShell(opts('hidden')).includes('<body class="pos-bottom">'));
+    assert.ok(renderShell(opts('bogus')).includes('<body class="pos-bottom">'));
   });
 });

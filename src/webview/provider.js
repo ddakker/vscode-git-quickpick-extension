@@ -14,6 +14,7 @@ const vscode = require('vscode');
 const { getWorkspaceCwd } = require('../workspace');
 const { buildState } = require('./build-state');
 const { renderShell, renderLists } = require('../../lib/webview-html');
+const { fileOpenCommand } = require('../git/queries');
 const { t, isKo } = require('../i18n');
 
 function nonceStr() {
@@ -24,8 +25,8 @@ function nonceStr() {
 }
 
 function readInputPosition() {
-  const pos = vscode.workspace.getConfiguration('gitReflow').get('messageInputPosition', 'top');
-  return ['top', 'bottom', 'hidden'].includes(pos) ? pos : 'top';
+  const pos = vscode.workspace.getConfiguration('gitReflow').get('messageInputPosition', 'bottom');
+  return ['top', 'bottom'].includes(pos) ? pos : 'bottom';
 }
 
 function buildLabels() {
@@ -42,6 +43,16 @@ function buildLabels() {
     abort: t('abortRebase'),
     inProgress: { rebase: t('inProgressRebase'), merge: t('inProgressMerge'), 'cherry-pick': t('inProgressCherryPick') },
     inputPlaceholder: t('inputPlaceholder'), inputCommit: t('inputCommit'), inputRecent: t('inputRecent'),
+    // 변경/스태시 섹션
+    sectionCommit: t('sectionCommit'), sectionStash: t('sectionStash'),
+    selectAll: t('selectAll'), toggleFileView: t('toggleFileView'),
+    noChanges: t('noChanges'), noStash: t('noStash'),
+    // 변경 파일 hover 인라인 액션 라벨(툴팁)
+    fileActions: {
+      jumpToSource: t('mJumpToSource'), stageFile: t('mStageFile'),
+      rollbackFile: t('mRollbackFile'), deleteFile: t('mDeleteFile'),
+      openConflictMergeEditor: t('mOpenConflictMerge'), openConflictInEditor: t('mOpenConflictEditor'),
+    },
   };
 }
 
@@ -88,10 +99,58 @@ function buildMenu() {
     localBranchSection: [
       { command: 'gitReflow.createBranch', label: t('mCreateBranch') },
     ],
-    // 커밋 펼친 파일: 열기(커밋된 소스) / 로컬과 비교
+    // 커밋 펼친 파일: 비교끼리(변경 비교=더블클릭 / 로컬과 비교) 묶고, 열기는 뒤로
     commitFile: [
-      { command: 'gitReflow.openCommitFileContent', label: t('mFileOpen') },
+      { command: 'gitReflow.openCommitFileDiff', label: t('mFileDiff') },
       { command: 'gitReflow.openCommitFileVsLocal', label: t('mFileCompare') },
+      { command: 'gitReflow.openCommitFileContent', label: t('mFileOpen') },
+    ],
+    // ─ 변경 사항 파일 (트리 view/item/context 와 동일 구성) ─
+    fileUntracked: [
+      { command: 'gitReflow.jumpToSource', label: t('mJumpToSource') },
+      { command: 'gitReflow.stageFile', label: t('mStageFile') },
+      { command: 'gitReflow.deleteFile', label: t('mDeleteFile') },
+      { command: 'gitReflow.addToGitignore', label: t('mAddGitignore') },
+      { command: 'gitReflow.copyPath', label: t('mCopyPath') },
+      { command: 'gitReflow.copyRelativePath', label: t('mCopyRelPath') },
+    ],
+    fileModified: [
+      { command: 'gitReflow.openChangedFile', label: t('mFileDiff') }, // 더블클릭과 동일(HEAD와 diff)
+      { command: 'gitReflow.jumpToSource', label: t('mJumpToSource') },
+      { command: 'gitReflow.rollbackFile', label: t('mRollbackFile') },
+      { command: 'gitReflow.deleteFile', label: t('mDeleteFile') },
+      { command: 'gitReflow.copyPath', label: t('mCopyPath') },
+      { command: 'gitReflow.copyRelativePath', label: t('mCopyRelPath') },
+    ],
+    fileDeleted: [
+      { command: 'gitReflow.openChangedFile', label: t('mFileDiff') }, // 더블클릭과 동일(삭제 diff)
+      { command: 'gitReflow.rollbackFile', label: t('mRollbackFile') },
+      { command: 'gitReflow.copyPath', label: t('mCopyPath') },
+      { command: 'gitReflow.copyRelativePath', label: t('mCopyRelPath') },
+    ],
+    fileConflict: [
+      { command: 'gitReflow.openConflictMergeEditor', label: t('mOpenConflictMerge') },
+      { command: 'gitReflow.openConflictInEditor', label: t('mOpenConflictEditor') },
+      { command: 'gitReflow.copyPath', label: t('mCopyPath') },
+      { command: 'gitReflow.copyRelativePath', label: t('mCopyRelPath') },
+    ],
+    fileOther: [
+      { command: 'gitReflow.jumpToSource', label: t('mJumpToSource') },
+      { command: 'gitReflow.deleteFile', label: t('mDeleteFile') },
+      { command: 'gitReflow.copyPath', label: t('mCopyPath') },
+      { command: 'gitReflow.copyRelativePath', label: t('mCopyRelPath') },
+    ],
+    // ─ 스태시 ─
+    stashSection: [
+      { command: 'gitReflow.createStash', label: t('mCreateStash') },
+    ],
+    stashEntry: [
+      { command: 'gitReflow.stashPop', label: t('mStashPop') },
+      { command: 'gitReflow.stashApply', label: t('mStashApply') },
+      { command: 'gitReflow.stashDrop', label: t('mStashDrop') },
+    ],
+    stashFile: [
+      { command: 'gitReflow.jumpToSource', label: t('mJumpToSource') },
     ],
   };
 }
@@ -100,9 +159,15 @@ class HistoryViewProvider {
   constructor(globalState) {
     this._view = null;
     this._globalState = globalState;
-    this._expanded = { history: true }; // 최초 히스토리만 펼침
+    this._expanded = { history: true, changes: true }; // 히스토리·변경 사항 펼침
     this._expandedCommits = new Set();  // 파일목록 펼친 커밋 해시
+    this._expandedStashFiles = new Set(); // 파일목록 펼친 스태시 ref
     this._cache = {};                   // buildState 데이터 캐시 (토글 시 git 조회 0회)
+    // 변경 사항(체크박스 커밋 대상) — 옵션 ON 시 트리 대신 이 provider 가 보유
+    this._checkedFiles = new Map();     // filePath -> bool
+    this._fileViewMode = 'list';        // 'list' | 'tree'
+    this._changes = [];                 // 마지막 변경 목록 (더블클릭 fileOpenCommand 조회용)
+    this._externalHasChecked = false;   // 트리 모드 체크 상태 (extension.js 가 주입)
     // 커밋 입력 상태 (CommitInputViewProvider 에서 흡수)
     this._message = '';
     this._pendingResolve = null;       // squash/amend 등 외부 대기
@@ -151,6 +216,25 @@ class HistoryViewProvider {
         if (this._expandedCommits.has(msg.hash)) this._expandedCommits.delete(msg.hash);
         else this._expandedCommits.add(msg.hash);
         return this.refresh();
+      case 'toggleStashEntry':
+        if (this._expandedStashFiles.has(msg.ref)) this._expandedStashFiles.delete(msg.ref);
+        else this._expandedStashFiles.add(msg.ref);
+        return this.refresh();
+      // ─ 변경 사항 (체크박스/보기 모드) ─
+      case 'toggleFile':
+        this._checkedFiles.set(msg.path, !!msg.checked);
+        this._updateChangesContext();
+        this.updateInputVisibility();
+        return;
+      case 'selectAll':
+        for (const key of this._checkedFiles.keys()) this._checkedFiles.set(key, !!msg.checked);
+        this._updateChangesContext();
+        this.updateInputVisibility();
+        return;
+      case 'toggleFileViewMode':
+        return this.toggleFileView();
+      case 'openChangedFile':
+        return this._openChangedFile(msg.path);
       case 'openCommitFile': {
         const cwd = getWorkspaceCwd();
         if (cwd && msg.hash && msg.file) {
@@ -185,6 +269,10 @@ class HistoryViewProvider {
   async _runCommand(command, arg) {
     let cmd = command;
     let item;
+    // 변경 파일 "변경 비교" — 더블클릭과 동일하게 상태별 diff/열기 (sentinel 명령).
+    if (command === 'gitReflow.openChangedFile' && arg && arg.kind === 'changedFile') {
+      return this._openChangedFile(arg.path);
+    }
     if (arg && arg.kind === 'commit') {
       item = { commitHash: arg.hash, contextValue: arg.ctx };
     } else if (arg && arg.kind === 'branch') {
@@ -199,6 +287,12 @@ class HistoryViewProvider {
         return void vscode.commands.executeCommand(command, { commitHash: arg.hash, tooltip: arg.file });
       }
       return void vscode.commands.executeCommand(command, arg.hash, arg.file, cwd);
+    } else if (arg && arg.kind === 'changedFile') {
+      // 변경 파일 명령은 item.filePath 를 사용 (스테이지/되돌리기/삭제/gitignore/경로복사/소스이동)
+      item = { filePath: arg.path };
+    } else if (arg && arg.kind === 'stash') {
+      // 스태시 항목/파일 명령은 item.stashRef / item.filePath 사용
+      item = { stashRef: arg.ref, filePath: arg.path };
     }
     await vscode.commands.executeCommand(cmd, item);
   }
@@ -210,22 +304,94 @@ class HistoryViewProvider {
     const cwd = getWorkspaceCwd();
     if (!cwd) {
       this._cache = {};
+      this._changes = [];
       this._view.webview.postMessage({ type: 'render', listsHtml: '' });
       return;
     }
     try {
-      const expanded = { ...this._expanded, __commits: [...this._expandedCommits] };
+      const expanded = {
+        ...this._expanded,
+        __commits: [...this._expandedCommits],
+        __stashFiles: [...this._expandedStashFiles],
+      };
       const state = await buildState(cwd, expanded, undefined, this._cache);
+      // 옵션 ON: 변경 사항 체크 상태/보기 모드를 주입하고 컨텍스트 키 갱신
+      if (state.workspaceInWebview) {
+        this._changes = state.changes || [];
+        this._reconcileChecked(this._changes);
+        state.checkedFiles = new Set(this.getCheckedFiles());
+        state.fileViewMode = this._fileViewMode;
+        this._updateChangesContext();
+      }
       this._view.webview.postMessage({ type: 'render', listsHtml: renderLists(state, buildLabels()) });
+      this.updateInputVisibility();
     } catch (err) {
       this._view.webview.postMessage({ type: 'render', listsHtml: `<div class="empty">${String(err && err.message || err)}</div>` });
     }
+  }
+
+  // 입력창/커밋 버튼 표시 여부 갱신 (showInputWhenChecked 옵션).
+  //   옵션 OFF → 항상 표시. 옵션 ON → 체크된 파일이 있을 때만(squash/amend 흐름은 예외).
+  updateInputVisibility() {
+    if (!this._view) return;
+    const onlyWhenChecked =
+      vscode.workspace.getConfiguration('gitReflow').get('showInputWhenChecked', false) === true;
+    const hasChecked = this._pendingResolve != null
+      || this.getCheckedFiles().length > 0
+      || this._externalHasChecked;
+    this._view.webview.postMessage({ type: 'inputVisible', visible: !onlyWhenChecked || hasChecked });
+  }
+
+  // 트리 모드(옵션 OFF)에서 트리 체크 상태를 주입받아 입력창 표시를 갱신.
+  setExternalCheckedState(hasChecked) {
+    this._externalHasChecked = !!hasChecked;
+    this.updateInputVisibility();
   }
 
   // 데이터가 바뀐 갱신(명령 실행/새로고침): 캐시 비우고 다시 조회.
   async reload() {
     this._cache = {};
     await this.refresh();
+  }
+
+  // ─── 변경 사항 제공자 역할 (트리 GitQuickPickTreeProvider 와 동일 인터페이스) ──
+  getCheckedFiles() {
+    const result = [];
+    for (const [filePath, checked] of this._checkedFiles) {
+      if (checked) result.push(filePath);
+    }
+    return result;
+  }
+
+  // 변경 목록 갱신 시 체크 상태를 보존(기존 값 유지, 신규 파일은 false, 사라진 파일 제거).
+  _reconcileChecked(changes) {
+    const next = new Map();
+    for (const f of changes) {
+      next.set(f.filePath, this._checkedFiles.get(f.filePath) ?? false);
+    }
+    this._checkedFiles = next;
+  }
+
+  toggleFileView() {
+    this._fileViewMode = this._fileViewMode === 'list' ? 'tree' : 'list';
+    this.refresh();
+  }
+
+  // 변경 파일을 상태별로 연다 (더블클릭/우클릭 "변경 비교" 공통).
+  //   수정 → HEAD diff, 삭제 → 삭제 diff, 신규 → 파일 열기, 충돌 → Merge Editor.
+  _openChangedFile(filePath) {
+    const cwd = getWorkspaceCwd();
+    const f = this._changes.find(c => c.filePath === filePath);
+    if (!cwd || !f) return;
+    const args = fileOpenCommand(f, cwd);
+    vscode.commands.executeCommand(args[0], ...args.slice(1));
+  }
+
+  // 커밋 버튼 활성화용 컨텍스트 키 (옵션 ON 일 때 historyProvider 가 관리).
+  _updateChangesContext() {
+    const hasChecked = [...this._checkedFiles.values()].some(v => v);
+    vscode.commands.executeCommand('setContext', 'gitReflow.hasChanges', this._checkedFiles.size > 0);
+    vscode.commands.executeCommand('setContext', 'gitReflow.hasCheckedFiles', hasChecked);
   }
 
   updateInputPosition() {
@@ -279,14 +445,20 @@ class HistoryViewProvider {
         this._view.webview.postMessage({ type: 'hideCancel' });
       }
       this.clearMessage();
+      this.updateInputVisibility(); // 흐름 종료 → 체크 상태 기준으로 재계산
     };
     return new Promise((resolve) => {
       this._pendingResolve = (value) => { restoreLabel(); resolve(value); };
+      this.updateInputVisibility(); // 대기 시작 → 입력 강제 표시(체크와 무관)
     });
   }
 
   cancelWait() {
-    if (this._pendingResolve) { this._pendingResolve(undefined); this._pendingResolve = null; }
+    if (this._pendingResolve) {
+      const resolve = this._pendingResolve;
+      this._pendingResolve = null;
+      resolve(undefined);
+    }
   }
 
   async _showHistoryQuickPick() {

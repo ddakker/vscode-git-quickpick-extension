@@ -2,12 +2,23 @@
 
 // ─────────────────────────────────────────────────────────────────────
 // i18n — 한/영 메시지 사전 + t() 치환 함수
-// vscode.env.language 로 로케일 판정. 다른 모듈은 require('./i18n') 로 사용.
+// 언어: gitReflow.language 설정 (auto/ko/en). auto 면 OS/VS Code 로케일.
+// 로드 시점에 한 번 해석한다(설정 변경 시 창 새로고침 필요) — 다른 모듈은 require('./i18n').
 // ─────────────────────────────────────────────────────────────────────
 
 const vscode = require('vscode');
 
-const isKo = vscode.env.language.startsWith('ko');
+function resolveIsKo() {
+  let lang = 'auto';
+  try {
+    lang = vscode.workspace.getConfiguration('gitReflow').get('language', 'auto') || 'auto';
+  } catch { /* 설정 접근 불가 시 auto 폴백 */ }
+  if (lang === 'ko') return true;
+  if (lang === 'en') return false;
+  return (vscode.env.language || 'en').startsWith('ko'); // auto: OS 로케일
+}
+
+const isKo = resolveIsKo();
 
 const messages = {
   noWorkspace:      ['워크스페이스가 열려있지 않습니다.', 'No workspace is open.'],
@@ -295,6 +306,24 @@ const messages = {
   mCreateBranch:      ['브랜치 생성', 'Create Branch'],
   mFileOpen:          ['열기', 'Open'],
   mFileCompare:       ['로컬과 비교', 'Compare with Local'],
+  mFileDiff:          ['변경 비교', 'Compare Changes'],
+  // ─── 변경/스태시 webview 메뉴 라벨 (트리 명령 제목과 동일) ──
+  mJumpToSource:      ['소스로 이동', 'Go to Source'],
+  mStageFile:         ['스테이지에 추가', 'Stage'],
+  mRollbackFile:      ['변경 되돌리기', 'Discard Changes'],
+  mDeleteFile:        ['파일 삭제', 'Delete File'],
+  mAddGitignore:      ['.gitignore에 추가', 'Add to .gitignore'],
+  mCopyPath:          ['경로 복사', 'Copy Path'],
+  mCopyRelPath:       ['상대 경로 복사', 'Copy Relative Path'],
+  mOpenConflictMerge: ['Merge Editor에서 충돌 해결', 'Resolve in Merge Editor'],
+  mOpenConflictEditor:['에디터에서 열기 (충돌 마커)', 'Open in Editor (markers)'],
+  mCreateStash:       ['변경 사항 스태시', 'Stash Changes'],
+  mStashPop:          ['복구 후 삭제 (pop)', 'Pop (restore & drop)'],
+  mStashApply:        ['복구 후 보존 (apply)', 'Apply (restore & keep)'],
+  mStashDrop:         ['스태시 삭제', 'Drop Stash'],
+  selectAll:          ['전체 선택/해제', 'Select All'],
+  noStash:            ['스태시가 없습니다.', 'No stashes.'],
+  toggleFileView:     ['파일/트리 보기 전환', 'Toggle file/tree view'],
   forcePull:          ['Force Pull', 'Force Pull'],
   wvRefresh:          ['새로고침', 'Refresh'],
   wvSettings:         ['설정', 'Settings'],
@@ -305,6 +334,8 @@ const messages = {
   inputRecent:        ['최근 메시지', 'Recent messages'],
   noCommitHistory:    ['커밋 메시지 히스토리가 없습니다', 'No commit message history'],
   selectRecentMsg:    ['최근 커밋 메시지 선택', 'Select recent commit message'],
+  reloadForLanguage:  ['언어 설정을 적용하려면 창을 새로고침하세요.', 'Reload the window to apply the language setting.'],
+  reloadWindow:       ['창 새로고침', 'Reload Window'],
 };
 
 function t(key, ...args) {
