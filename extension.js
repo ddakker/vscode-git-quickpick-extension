@@ -406,7 +406,7 @@ function activate(context) {
 
   // 변경/스태시를 웹뷰로 옮기는 옵션. ON 이면 트리 대신 historyProvider 가 변경 제공자.
   const workspaceOn = () =>
-    vscode.workspace.getConfiguration('gitReflow').get('workspaceInWebview', false) === true;
+    vscode.workspace.getConfiguration('gitReflow').get('workspaceInWebview', true) !== false;
 
   // 변경 사항(체크박스/커밋)을 다루는 provider — 옵션에 따라 트리 또는 웹뷰
   const activeChangesProvider = () => (workspaceOn() ? historyProvider : treeProvider);

@@ -12,11 +12,11 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const { buildState } = require('../src/webview/build-state');
 
-// workspaceInWebview 옵션을 켠 채로 fn 실행 (설정 스텁 일시 오버라이드)
-async function withWorkspaceOption(fn) {
+// workspaceInWebview 옵션을 지정한 값으로 두고 fn 실행 (설정 스텁 일시 오버라이드)
+async function withWorkspaceOption(fn, value = true) {
   const orig = stub.workspace.getConfiguration;
   stub.workspace.getConfiguration = () => ({
-    get: (key, def) => (key === 'workspaceInWebview' ? true : (def === undefined ? null : def)),
+    get: (key, def) => (key === 'workspaceInWebview' ? value : (def === undefined ? null : def)),
     update: () => Promise.resolve(), has: () => false, inspect: () => undefined,
   });
   try { return await fn(); }
@@ -141,11 +141,13 @@ describe('buildState', () => {
   });
 
   test('옵션 OFF: 변경/스태시 미조회', async () => {
-    const { calls, deps } = makeDeps();
-    const state = await buildState('/x', {}, deps);
-    assert.equal(state.workspaceInWebview, false);
-    assert.ok(!calls.includes('getChangedFiles'));
-    assert.equal(state.changes, null);
+    await withWorkspaceOption(async () => {
+      const { calls, deps } = makeDeps();
+      const state = await buildState('/x', {}, deps);
+      assert.equal(state.workspaceInWebview, false);
+      assert.ok(!calls.includes('getChangedFiles'));
+      assert.equal(state.changes, null);
+    }, false);
   });
 
   test('옵션 ON: 변경 사항은 항상 조회 (스태시는 접힘이라 미조회)', async () => {

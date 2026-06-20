@@ -47,26 +47,55 @@
     "configuration": {
       "title": "Git QuickPick",
       "properties": {
-        "gitReflow.backupBeforeRebase": {
+        "gitReflow.language": {
+          "type": "string",
+          "default": "auto",
+          "order": 1,
+          "enum": [
+            "auto",
+            "ko",
+            "en"
+          ],
+          "enumDescriptions": [
+            "%config.language.auto%",
+            "%config.language.ko%",
+            "%config.language.en%"
+          ],
+          "description": "%config.language%"
+        },
+        "gitReflow.workspaceInWebview": {
           "type": "boolean",
           "default": true,
-          "description": "%config.backupBeforeRebase%"
+          "order": 2,
+          "description": "%config.workspaceInWebview%"
         },
-        "gitReflow.backupMaxKeep": {
+        "gitReflow.messageInputPosition": {
+          "type": "string",
+          "default": "bottom",
+          "order": 3,
+          "enum": [
+            "top",
+            "bottom"
+          ],
+          "description": "%config.messageInputPosition%"
+        },
+        "gitReflow.showInputWhenChecked": {
+          "type": "boolean",
+          "default": true,
+          "order": 4,
+          "description": "%config.showInputWhenChecked%"
+        },
+        "gitReflow.historyCount": {
           "type": "number",
           "default": 10,
-          "minimum": 0,
-          "description": "%config.backupMaxKeep%"
-        },
-        "gitReflow.backupMaxAgeDays": {
-          "type": "number",
-          "default": 30,
-          "minimum": 0,
-          "description": "%config.backupMaxAgeDays%"
+          "minimum": 1,
+          "order": 5,
+          "description": "%config.historyCount%"
         },
         "gitReflow.commitFieldOrder": {
           "type": "string",
           "default": "message,date,author,hash",
+          "order": 6,
           "enum": [
             "message,date,author,hash",
             "message,author,date,hash",
@@ -91,6 +120,7 @@
             "author": "dim",
             "hash": "dim"
           },
+          "order": 7,
           "description": "%config.commitFieldStyles%"
         },
         "gitReflow.commitFieldWidths": {
@@ -100,47 +130,28 @@
             "author": 90,
             "hash": 70
           },
+          "order": 8,
           "description": "%config.commitFieldWidths%"
         },
-        "gitReflow.messageInputPosition": {
-          "type": "string",
-          "default": "bottom",
-          "enum": [
-            "top",
-            "bottom"
-          ],
-          "description": "%config.messageInputPosition%"
-        },
-        "gitReflow.workspaceInWebview": {
+        "gitReflow.backupBeforeRebase": {
           "type": "boolean",
-          "default": false,
-          "description": "%config.workspaceInWebview%"
+          "default": true,
+          "order": 9,
+          "description": "%config.backupBeforeRebase%"
         },
-        "gitReflow.showInputWhenChecked": {
-          "type": "boolean",
-          "default": false,
-          "description": "%config.showInputWhenChecked%"
-        },
-        "gitReflow.historyCount": {
+        "gitReflow.backupMaxKeep": {
           "type": "number",
           "default": 10,
-          "minimum": 1,
-          "description": "%config.historyCount%"
+          "minimum": 0,
+          "order": 10,
+          "description": "%config.backupMaxKeep%"
         },
-        "gitReflow.language": {
-          "type": "string",
-          "default": "auto",
-          "enum": [
-            "auto",
-            "ko",
-            "en"
-          ],
-          "enumDescriptions": [
-            "%config.language.auto%",
-            "%config.language.ko%",
-            "%config.language.en%"
-          ],
-          "description": "%config.language%"
+        "gitReflow.backupMaxAgeDays": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "order": 11,
+          "description": "%config.backupMaxAgeDays%"
         }
       }
     },
@@ -400,11 +411,6 @@
           "command": "gitReflow.toggleFileView",
           "when": "view == gitQuickPickHistory && gitReflow.hasChanges && !config.gitReflow.workspaceInWebview",
           "group": "navigation@2"
-        },
-        {
-          "command": "gitReflow.execCommit",
-          "when": "view == gitQuickPickHistory && gitReflow.hasCheckedFiles",
-          "group": "navigation@3"
         },
         {
           "command": "gitReflow.execPush",

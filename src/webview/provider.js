@@ -224,12 +224,12 @@ class HistoryViewProvider {
       case 'toggleFile':
         this._checkedFiles.set(msg.path, !!msg.checked);
         this._updateChangesContext();
-        this.updateInputVisibility();
+        this.updateInputVisibility(true); // 체크로 입력창이 나타나면 포커스 이동
         return;
       case 'selectAll':
         for (const key of this._checkedFiles.keys()) this._checkedFiles.set(key, !!msg.checked);
         this._updateChangesContext();
-        this.updateInputVisibility();
+        this.updateInputVisibility(true);
         return;
       case 'toggleFileViewMode':
         return this.toggleFileView();
@@ -332,14 +332,17 @@ class HistoryViewProvider {
 
   // 입력창/커밋 버튼 표시 여부 갱신 (showInputWhenChecked 옵션).
   //   옵션 OFF → 항상 표시. 옵션 ON → 체크된 파일이 있을 때만(squash/amend 흐름은 예외).
-  updateInputVisibility() {
+  //   focusInput: 체크로 입력창이 나타날 때 입력창에 포커스(숨김→표시 전환 시에만 적용).
+  updateInputVisibility(focusInput = false) {
     if (!this._view) return;
     const onlyWhenChecked =
-      vscode.workspace.getConfiguration('gitReflow').get('showInputWhenChecked', false) === true;
+      vscode.workspace.getConfiguration('gitReflow').get('showInputWhenChecked', true) !== false;
     const hasChecked = this._pendingResolve != null
       || this.getCheckedFiles().length > 0
       || this._externalHasChecked;
-    this._view.webview.postMessage({ type: 'inputVisible', visible: !onlyWhenChecked || hasChecked });
+    this._view.webview.postMessage({
+      type: 'inputVisible', visible: !onlyWhenChecked || hasChecked, focus: focusInput,
+    });
   }
 
   // 트리 모드(옵션 OFF)에서 트리 체크 상태를 주입받아 입력창 표시를 갱신.

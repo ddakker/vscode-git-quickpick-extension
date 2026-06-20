@@ -32,7 +32,7 @@ function readCommitConfig() {
     fieldStyles: styles && typeof styles === 'object' ? { ...DEFAULT_FIELD_STYLES, ...styles } : DEFAULT_FIELD_STYLES,
     fieldWidths: widths && typeof widths === 'object' ? { ...DEFAULT_FIELD_WIDTHS, ...widths } : DEFAULT_FIELD_WIDTHS,
     messageInputPosition: ['top', 'bottom'].includes(pos) ? pos : DEFAULT_INPUT_POSITION,
-    workspaceInWebview: cfg.get('workspaceInWebview', false) === true,
+    workspaceInWebview: cfg.get('workspaceInWebview', true) !== false,
     historyCount: Number.isInteger(hc) && hc > 0 ? hc : DEFAULT_HISTORY_COUNT,
   };
 }
