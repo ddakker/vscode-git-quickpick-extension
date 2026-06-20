@@ -37,11 +37,16 @@ function readCommitConfig() {
 //   cwd: 작업 디렉토리
 //   expanded: { history, localBranch, remoteBranch, [branchName]: true } 펼침 상태
 //   deps: git 조회 함수 (테스트 주입용). 기본은 실제 queries.
-async function buildState(cwd, expanded = {}, deps = queries) {
+//   cache: 영속 캐시 객체(provider 보유). 한 번 조회한 데이터를 재사용해 토글이 빠르다.
+//          명령 실행/새로고침 시 provider 가 cache 를 비워 다시 조회하게 한다.
+async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
   const {
     getCurrentBranch, hasInProgressOperation, getLocalBranches,
-    getRemoteBranches, getCommitLog, ensureRemoteBranchFetched,
+    getRemoteBranches, getCommitLog, ensureRemoteBranchFetched, getCommitFiles,
   } = deps;
+
+  cache.branchHistory = cache.branchHistory || {};
+  cache.commitFiles = cache.commitFiles || {};
 
   const config = readCommitConfig();
   const state = {
@@ -51,52 +56,73 @@ async function buildState(cwd, expanded = {}, deps = queries) {
     localBranches: null,
     remoteBranches: null,
     branchHistory: {},
+    commitFiles: {},        // { [hash]: [{statusCode, filePath}] } — 펼친 커밋만
     expanded: { ...expanded },
     config,
   };
 
-  state.inProgress = await hasInProgressOperation(cwd);
-  state.currentBranch = await getCurrentBranch(cwd);
+  // 진행상태/현재브랜치도 캐시 — 토글 시 git 조회 0회 (네이티브 트리급 반응).
+  // 명령 실행/새로고침 때 provider 가 cache 를 비워 갱신한다.
+  if (cache.inProgress === undefined) cache.inProgress = await hasInProgressOperation(cwd);
+  if (cache.currentBranch === undefined) cache.currentBranch = await getCurrentBranch(cwd);
+  state.inProgress = cache.inProgress;
+  state.currentBranch = cache.currentBranch;
 
-  // 히스토리 — 펼쳤을 때만 조회 (lazy)
+  // 히스토리 — 펼쳤을 때만 조회 (lazy + 캐시)
   if (expanded.history) {
-    state.history = await getCommitLog(cwd);
+    if (!cache.history) cache.history = await getCommitLog(cwd);
+    state.history = cache.history;
   }
 
-  // 로컬 브랜치 — 가벼우므로 펼쳤을 때 목록 조회
+  // 로컬 브랜치 — 펼쳤을 때 목록 조회 (캐시)
   if (expanded.localBranch) {
-    const branches = await getLocalBranches(cwd);
-    state.localBranches = branches.map(b => ({
+    if (!cache.localBranches) cache.localBranches = await getLocalBranches(cwd);
+    state.localBranches = cache.localBranches.map(b => ({
       name: b.name,
       description: b.description,
       isCurrent: b.name === state.currentBranch,
     }));
   }
 
-  // 원격 브랜치 — ls-remote(네트워크) 포함이므로 펼쳤을 때만 (lazy)
+  // 원격 브랜치 — ls-remote(네트워크) 포함이므로 펼쳤을 때만 (lazy + 캐시)
   if (expanded.remoteBranch) {
-    const branches = await getRemoteBranches(cwd);
-    state.remoteBranches = branches.map(b => ({
+    if (!cache.remoteBranches) cache.remoteBranches = await getRemoteBranches(cwd);
+    state.remoteBranches = cache.remoteBranches.map(b => ({
       name: b.name,
       description: b.description,
-      unfetched: !!b.unfetched, // source of truth (매번 재계산)
+      unfetched: !!b.unfetched,
     }));
   }
 
-  // 펼쳐진 개별 브랜치의 커밋 히스토리
-  const branchNames = Object.keys(expanded).filter(k =>
-    !['history', 'localBranch', 'remoteBranch'].includes(k) && expanded[k]);
+  // 펼쳐진 개별 브랜치의 커밋 히스토리 (예약 키 __commits 제외, 캐시)
+  const RESERVED = ['history', 'localBranch', 'remoteBranch', '__commits'];
+  const branchNames = Object.keys(expanded).filter(k => !RESERVED.includes(k) && expanded[k]);
   for (const name of branchNames) {
-    // 미페치 원격 브랜치면 먼저 페치 (실패 시 빈 목록)
+    if (cache.branchHistory[name]) { state.branchHistory[name] = cache.branchHistory[name]; continue; }
     try {
+      // 미페치 원격 브랜치면 먼저 페치 (실패 시 빈 목록)
       const remote = (state.remoteBranches || []).find(b => b.name === name);
       if (remote && remote.unfetched && ensureRemoteBranchFetched) {
         await ensureRemoteBranchFetched(cwd, name);
       }
-      state.branchHistory[name] = await getCommitLog(cwd, { branch: name });
+      cache.branchHistory[name] = await getCommitLog(cwd, { branch: name });
     } catch {
-      state.branchHistory[name] = [];
+      cache.branchHistory[name] = [];
     }
+    state.branchHistory[name] = cache.branchHistory[name];
+  }
+
+  // 펼쳐진 커밋의 변경 파일 목록 (커밋 행 펼침, 캐시)
+  const expandedCommits = Array.isArray(expanded.__commits) ? expanded.__commits : [];
+  for (const hash of expandedCommits) {
+    if (!getCommitFiles) break;
+    if (cache.commitFiles[hash]) { state.commitFiles[hash] = cache.commitFiles[hash]; continue; }
+    try {
+      cache.commitFiles[hash] = await getCommitFiles(cwd, hash);
+    } catch {
+      cache.commitFiles[hash] = [];
+    }
+    state.commitFiles[hash] = cache.commitFiles[hash];
   }
 
   return state;

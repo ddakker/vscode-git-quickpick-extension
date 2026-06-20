@@ -33,6 +33,7 @@ function buildLabels() {
     loading: t('fetchingRemotes'),
     noCommits: t('noCommits'),
     noBranches: t('noBranches'),
+    noDiffFiles: t('noDiffFiles'),
     current: t('current'),
     sectionHistory: t('sectionHistory'),
     sectionLocalBranch: t('sectionLocalBranch'),
@@ -40,32 +41,57 @@ function buildLabels() {
     continue: t('continueRebase'),
     abort: t('abortRebase'),
     inProgress: { rebase: t('inProgressRebase'), merge: t('inProgressMerge'), 'cherry-pick': t('inProgressCherryPick') },
-    tbRefresh: t('wvRefresh'), tbNewBranch: t('enterBranchName'),
-    tbPush: t('push'), tbForcePush: t('pushForce'), tbPull: t('pull'), tbForcePull: t('forcePull'),
-    tbStash: t('sectionStash'), tbCleanup: t('wvCleanup'), tbSettings: t('wvSettings'),
     inputPlaceholder: t('inputPlaceholder'), inputCommit: t('inputCommit'), inputRecent: t('inputRecent'),
   };
 }
 
-// 커밋/브랜치 우클릭 메뉴 정의 (command + 라벨)
+// 우클릭 메뉴 — 항목 종류(contextValue)별로 정의 (원본 트리 메뉴와 동일 구성).
 function buildMenu() {
+  const copy = [
+    { command: 'gitReflow.copyHash', label: t('mCopyHash') },
+    { command: 'gitReflow.copyMessage', label: t('mCopyMessage') },
+  ];
+  const squash = { command: 'gitReflow.execInteractiveRebase', label: t('mSquash') };
+  const reset = [
+    { command: 'gitReflow.execSoftReset', label: t('mSoftReset') },
+    { command: 'gitReflow.execHardReset', label: t('mHardReset') },
+  ];
+  const amend = { command: 'gitReflow.execAmendMessage', label: t('mAmend') };
   return {
-    commit: [
-      { command: 'gitReflow.copyHash', label: t('copyHash') },
-      { command: 'gitReflow.copyMessage', label: t('copyMessage') },
-      { command: 'gitReflow.viewDiff', label: t('viewDiff') },
-      { command: 'gitReflow.execCherryPick', label: t('cherryPickAction') },
-      { command: 'gitReflow.resetToHere', label: t('resetToHere') },
-      { command: 'gitReflow.execAmendMessage', label: t('menuAmend') },
-      { command: 'gitReflow.execInteractiveRebase', label: t('menuSquash') },
+    // 히스토리 커밋: 복사 / squash / soft·hard reset (최신 커밋은 amend 가 squash 앞)
+    historyCommit: [...copy, squash, ...reset],
+    historyCommitLatest: [...copy, amend, squash, ...reset],
+    // 브랜치 펼친 커밋: 복사 / 체리픽
+    branchHistoryCommit: [...copy, { command: 'gitReflow.execCherryPick', label: t('mCherryPick') }],
+    // 로컬 브랜치: 전환/pull/force-pull/rebase/merge/삭제
+    localBranch: [
+      { command: 'gitReflow.execSwitch', label: t('mSwitch') },
+      { command: 'gitReflow.execBranchPull', label: t('mBranchPull') },
+      { command: 'gitReflow.execForceBranchPull', label: t('mForceBranchPull') },
+      { command: 'gitReflow.execRebase', label: t('mRebase') },
+      { command: 'gitReflow.execMerge', label: t('mMerge') },
+      { command: 'gitReflow.execDeleteBranch', label: t('mDeleteBranch') },
     ],
-    branch: [
-      { command: 'gitReflow.execSwitch', label: t('menuSwitch') },
-      { command: 'gitReflow.execBranchPull', label: t('pull') },
-      { command: 'gitReflow.execForceBranchPull', label: t('forcePull') },
-      { command: 'gitReflow.execRebase', label: t('menuRebase') },
-      { command: 'gitReflow.execMerge', label: t('menuMerge') },
-      { command: 'gitReflow.execDeleteBranch', label: t('delete') },
+    // 현재 브랜치: pull/force-pull 만 (전환·삭제 불가)
+    localBranchCurrent: [
+      { command: 'gitReflow.execBranchPull', label: t('mBranchPull') },
+      { command: 'gitReflow.execForceBranchPull', label: t('mForceBranchPull') },
+    ],
+    // 원격 브랜치: 전환/rebase/merge/원격삭제
+    remoteBranch: [
+      { command: 'gitReflow.execSwitch', label: t('mSwitch') },
+      { command: 'gitReflow.execRebase', label: t('mRebase') },
+      { command: 'gitReflow.execMerge', label: t('mMerge') },
+      { command: 'gitReflow.execDeleteRemoteBranch', label: t('mDeleteRemoteBranch') },
+    ],
+    // 로컬 브랜치 섹션 헤더: 브랜치 생성 (master 의 localBranchSection 메뉴)
+    localBranchSection: [
+      { command: 'gitReflow.createBranch', label: t('mCreateBranch') },
+    ],
+    // 커밋 펼친 파일: 열기(커밋된 소스) / 로컬과 비교
+    commitFile: [
+      { command: 'gitReflow.openCommitFileContent', label: t('mFileOpen') },
+      { command: 'gitReflow.openCommitFileVsLocal', label: t('mFileCompare') },
     ],
   };
 }
@@ -75,6 +101,8 @@ class HistoryViewProvider {
     this._view = null;
     this._globalState = globalState;
     this._expanded = { history: true }; // 최초 히스토리만 펼침
+    this._expandedCommits = new Set();  // 파일목록 펼친 커밋 해시
+    this._cache = {};                   // buildState 데이터 캐시 (토글 시 git 조회 0회)
     // 커밋 입력 상태 (CommitInputViewProvider 에서 흡수)
     this._message = '';
     this._pendingResolve = null;       // squash/amend 등 외부 대기
@@ -119,6 +147,17 @@ class HistoryViewProvider {
       case 'toggleBranch':
         this._expanded[msg.branchName] = !this._expanded[msg.branchName];
         return this.refresh();
+      case 'toggleCommit':
+        if (this._expandedCommits.has(msg.hash)) this._expandedCommits.delete(msg.hash);
+        else this._expandedCommits.add(msg.hash);
+        return this.refresh();
+      case 'openCommitFile': {
+        const cwd = getWorkspaceCwd();
+        if (cwd && msg.hash && msg.file) {
+          vscode.commands.executeCommand('gitReflow.openCommitFileDiff', msg.hash, msg.file, cwd);
+        }
+        return;
+      }
       case 'op': {
         const cmd = msg.op === 'continue' ? 'gitReflow.continueOperation' : 'gitReflow.abortOperation';
         return void vscode.commands.executeCommand(cmd);
@@ -153,24 +192,40 @@ class HistoryViewProvider {
       if (command === 'gitReflow.execDeleteBranch' && arg.ctx === 'remoteBranch') {
         cmd = 'gitReflow.execDeleteRemoteBranch';
       }
+    } else if (arg && arg.kind === 'file') {
+      // 커밋 파일 명령은 (hash, filePath, cwd) 위치 인자 / vsLocal 은 item 사용
+      const cwd = getWorkspaceCwd();
+      if (command === 'gitReflow.openCommitFileVsLocal') {
+        return void vscode.commands.executeCommand(command, { commitHash: arg.hash, tooltip: arg.file });
+      }
+      return void vscode.commands.executeCommand(command, arg.hash, arg.file, cwd);
     }
     await vscode.commands.executeCommand(cmd, item);
   }
 
   // ─── 리스트 렌더 (입력영역과 분리) ───────────────────────────────
+  // 토글 등 데이터 불변 갱신: 캐시 재사용 → git 조회 0회.
   async refresh() {
     if (!this._view) return;
     const cwd = getWorkspaceCwd();
     if (!cwd) {
+      this._cache = {};
       this._view.webview.postMessage({ type: 'render', listsHtml: '' });
       return;
     }
     try {
-      const state = await buildState(cwd, this._expanded);
+      const expanded = { ...this._expanded, __commits: [...this._expandedCommits] };
+      const state = await buildState(cwd, expanded, undefined, this._cache);
       this._view.webview.postMessage({ type: 'render', listsHtml: renderLists(state, buildLabels()) });
     } catch (err) {
       this._view.webview.postMessage({ type: 'render', listsHtml: `<div class="empty">${String(err && err.message || err)}</div>` });
     }
+  }
+
+  // 데이터가 바뀐 갱신(명령 실행/새로고침): 캐시 비우고 다시 조회.
+  async reload() {
+    this._cache = {};
+    await this.refresh();
   }
 
   updateInputPosition() {

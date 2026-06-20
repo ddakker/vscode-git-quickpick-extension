@@ -23,20 +23,10 @@ const path = require('path');
 
 const ext = require(path.resolve(__dirname, '..', 'extension.js'));
 const {
-  changesViewMode, isRebaseBackupEnabled, getBackupMaxKeep, getBackupMaxAgeDays,
+  isRebaseBackupEnabled, getBackupMaxKeep, getBackupMaxAgeDays,
 } = ext._internals;
 
 beforeEach(() => { fakeConfig = {}; });
-
-describe('changesViewMode', () => {
-  test('미설정 시 기본값 workspace', () => {
-    assert.equal(changesViewMode(), 'workspace');
-  });
-  test('설정값을 반환', () => {
-    fakeConfig.changesViewMode = 'separate';
-    assert.equal(changesViewMode(), 'separate');
-  });
-});
 
 describe('backup readers', () => {
   test('기본값: 백업 켜짐 / maxKeep 10 / maxAgeDays 30', () => {

@@ -252,9 +252,22 @@ async function getCommitLog(cwd, options = {}) {
   }
 }
 
+// 한 커밋에서 변경된 파일 목록 — [{ statusCode, filePath }]
+// --no-renames: 이름변경을 D+A 로 분리해 상태 글자 매핑을 단순화
+async function getCommitFiles(cwd, hash) {
+  try {
+    const { stdout } = await execGitSilent(
+      ['diff-tree', '--no-commit-id', '-r', '--no-renames', '--name-status', hash], cwd
+    );
+    return parseNameStatus(stdout);
+  } catch {
+    return [];
+  }
+}
+
 module.exports = {
   isGitRepo, getCurrentBranch, getLocalBranches, getRemoteNames, lsRemoteHeads,
   getRemoteBranches, fetchAll, getStashList, getStashFiles, ensureRemoteBranchFetched,
   localBranchExists, isDetachedHead, hasInProgressOperation, getChangedFiles,
-  fileStatusLetter, fileOpenCommand, getCommitLog,
+  fileStatusLetter, fileOpenCommand, getCommitLog, getCommitFiles,
 };

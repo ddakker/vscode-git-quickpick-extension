@@ -25,6 +25,7 @@ function makeDeps(over = {}) {
       getRemoteBranches: rec('getRemoteBranches', [{ name: 'origin/main', description: 'd', unfetched: false }, { name: 'origin/new', description: '(미페치)', unfetched: true }]),
       getCommitLog: rec('getCommitLog', [{ hash: 'h1', message: 'm', author: 'a', date: 'd' }]),
       ensureRemoteBranchFetched: rec('ensureRemoteBranchFetched'),
+      getCommitFiles: rec('getCommitFiles', [{ statusCode: 'M', filePath: 'a.txt' }]),
       ...over,
     },
   };
@@ -79,6 +80,19 @@ describe('buildState', () => {
     const state = await buildState('/x', { feat: true }, deps);
     assert.ok(Array.isArray(state.branchHistory.feat));
     assert.equal(state.branchHistory.feat.length, 1);
+  });
+
+  test('펼친 커밋(__commits)은 commitFiles 채움', async () => {
+    const { calls, deps } = makeDeps();
+    const state = await buildState('/x', { history: true, __commits: ['h1'] }, deps);
+    assert.ok(calls.includes('getCommitFiles'));
+    assert.deepEqual(state.commitFiles.h1, [{ statusCode: 'M', filePath: 'a.txt' }]);
+  });
+
+  test('펼친 커밋 없으면 getCommitFiles 미호출', async () => {
+    const { calls, deps } = makeDeps();
+    await buildState('/x', { history: true }, deps);
+    assert.ok(!calls.includes('getCommitFiles'));
   });
 
   test('빈/에러 저장소에서 throw 없이 동작', async () => {

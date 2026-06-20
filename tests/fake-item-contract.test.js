@@ -55,26 +55,52 @@ describe('fakeItem 빌더 (provider._runCommand)', () => {
   });
 });
 
-describe('메뉴 계약', () => {
+describe('메뉴 계약 (master 트리 메뉴와 동일 구성)', () => {
   const menu = buildMenu();
-  test('커밋 메뉴 명령은 commitHash 만 있으면 동작하는 것들', () => {
-    const cmds = menu.commit.map(m => m.command);
-    for (const c of ['gitReflow.copyHash', 'gitReflow.copyMessage', 'gitReflow.viewDiff',
-      'gitReflow.execCherryPick', 'gitReflow.resetToHere', 'gitReflow.execAmendMessage',
-      'gitReflow.execInteractiveRebase']) {
-      assert.ok(cmds.includes(c), `commit 메뉴에 ${c} 필요`);
-    }
+  const cmds = (ctx) => menu[ctx].map(m => m.command);
+
+  test('historyCommit: 복사 / squash / soft·hard reset', () => {
+    assert.deepEqual(cmds('historyCommit'), [
+      'gitReflow.copyHash', 'gitReflow.copyMessage', 'gitReflow.execInteractiveRebase',
+      'gitReflow.execSoftReset', 'gitReflow.execHardReset',
+    ]);
   });
-  test('브랜치 메뉴 명령은 branchName 기반', () => {
-    const cmds = menu.branch.map(m => m.command);
-    for (const c of ['gitReflow.execSwitch', 'gitReflow.execBranchPull', 'gitReflow.execForceBranchPull',
-      'gitReflow.execRebase', 'gitReflow.execMerge', 'gitReflow.execDeleteBranch']) {
-      assert.ok(cmds.includes(c), `branch 메뉴에 ${c} 필요`);
-    }
+  test('historyCommitLatest: amend 가 squash 앞에 추가', () => {
+    assert.deepEqual(cmds('historyCommitLatest'), [
+      'gitReflow.copyHash', 'gitReflow.copyMessage', 'gitReflow.execAmendMessage',
+      'gitReflow.execInteractiveRebase', 'gitReflow.execSoftReset', 'gitReflow.execHardReset',
+    ]);
+  });
+  test('branchHistoryCommit: 복사 / 체리픽', () => {
+    assert.deepEqual(cmds('branchHistoryCommit'),
+      ['gitReflow.copyHash', 'gitReflow.copyMessage', 'gitReflow.execCherryPick']);
+  });
+  test('localBranch: 전환/pull/force-pull/rebase/merge/삭제', () => {
+    assert.deepEqual(cmds('localBranch'), [
+      'gitReflow.execSwitch', 'gitReflow.execBranchPull', 'gitReflow.execForceBranchPull',
+      'gitReflow.execRebase', 'gitReflow.execMerge', 'gitReflow.execDeleteBranch',
+    ]);
+  });
+  test('localBranchCurrent: pull/force-pull 만', () => {
+    assert.deepEqual(cmds('localBranchCurrent'),
+      ['gitReflow.execBranchPull', 'gitReflow.execForceBranchPull']);
+  });
+  test('remoteBranch: 전환/rebase/merge/원격삭제', () => {
+    assert.deepEqual(cmds('remoteBranch'), [
+      'gitReflow.execSwitch', 'gitReflow.execRebase', 'gitReflow.execMerge',
+      'gitReflow.execDeleteRemoteBranch',
+    ]);
+  });
+  test('localBranchSection: 브랜치 생성', () => {
+    assert.deepEqual(cmds('localBranchSection'), ['gitReflow.createBranch']);
+  });
+  test('commitFile: 열기(커밋 소스) / 로컬과 비교', () => {
+    assert.deepEqual(cmds('commitFile'),
+      ['gitReflow.openCommitFileContent', 'gitReflow.openCommitFileVsLocal']);
   });
   test('모든 메뉴 항목은 label 과 command 를 가짐', () => {
-    for (const it of [...menu.commit, ...menu.branch]) {
-      assert.ok(it.command && it.label, `메뉴 항목 누락: ${JSON.stringify(it)}`);
+    for (const items of Object.values(menu)) {
+      for (const it of items) assert.ok(it.command && it.label, `누락: ${JSON.stringify(it)}`);
     }
   });
 });

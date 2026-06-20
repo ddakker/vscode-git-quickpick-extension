@@ -37,12 +37,6 @@
           "initialSize": 3
         },
         {
-          "id": "gitQuickPickChanges",
-          "name": "%view.changes%",
-          "contextualTitle": "Git QuickPick",
-          "when": "config.gitReflow.changesViewMode == 'separate'"
-        },
-        {
           "id": "gitQuickPickView",
           "name": "%view.workspace%",
           "contextualTitle": "Git QuickPick"
@@ -52,19 +46,6 @@
     "configuration": {
       "title": "Git QuickPick",
       "properties": {
-        "gitReflow.changesViewMode": {
-          "type": "string",
-          "default": "workspace",
-          "enum": [
-            "workspace",
-            "separate"
-          ],
-          "enumDescriptions": [
-            "%config.changesViewMode.workspace%",
-            "%config.changesViewMode.separate%"
-          ],
-          "description": "%config.changesViewMode%"
-        },
         "gitReflow.backupBeforeRebase": {
           "type": "boolean",
           "default": true,
@@ -386,174 +367,214 @@
       "view/title": [
         {
           "command": "gitReflow.toggleFileView",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && gitReflow.hasChanges",
-          "group": "navigation@1"
+          "when": "view == gitQuickPickHistory && gitReflow.hasChanges",
+          "group": "navigation@2"
         },
         {
           "command": "gitReflow.execCommit",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && gitReflow.hasCheckedFiles",
-          "group": "navigation@2"
+          "when": "view == gitQuickPickHistory && gitReflow.hasCheckedFiles",
+          "group": "navigation@3"
+        },
+        {
+          "command": "gitReflow.execPush",
+          "when": "view == gitQuickPickHistory",
+          "group": "navigation@4"
+        },
+        {
+          "command": "gitReflow.execPull",
+          "when": "view == gitQuickPickHistory",
+          "group": "navigation@5"
+        },
+        {
+          "command": "gitReflow.createStash",
+          "when": "view == gitQuickPickHistory && gitReflow.hasChanges",
+          "group": "navigation@6"
+        },
+        {
+          "command": "gitReflow.refreshView",
+          "when": "view == gitQuickPickHistory",
+          "group": "navigation@7"
+        },
+        {
+          "command": "gitReflow.execForcePush",
+          "when": "view == gitQuickPickHistory",
+          "group": "1_push@1"
+        },
+        {
+          "command": "gitReflow.execForcePull",
+          "when": "view == gitQuickPickHistory",
+          "group": "1_push@2"
+        },
+        {
+          "command": "gitReflow.cleanupBackups",
+          "when": "view == gitQuickPickHistory",
+          "group": "2_backup@1"
+        },
+        {
+          "command": "gitReflow.openSettings",
+          "when": "view == gitQuickPickHistory",
+          "group": "2_backup@2"
         }
       ],
       "view/item/context": [
         {
           "command": "gitReflow.jumpToSource",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileUntracked",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
           "group": "inline@1"
         },
         {
           "command": "gitReflow.stageFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileUntracked",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
           "group": "inline@2"
         },
         {
           "command": "gitReflow.deleteFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileUntracked",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
           "group": "inline@3"
         },
         {
           "command": "gitReflow.jumpToSource",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileUntracked",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
           "group": "0_inline@1"
         },
         {
           "command": "gitReflow.stageFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileUntracked",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
           "group": "0_inline@2"
         },
         {
           "command": "gitReflow.deleteFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileUntracked",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
           "group": "0_inline@3"
         },
         {
           "command": "gitReflow.addToGitignore",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileUntracked",
+          "when": "view == gitQuickPickView && viewItem == fileUntracked",
           "group": "8_gitignore@1"
         },
         {
           "command": "gitReflow.openConflictMergeEditor",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileConflict",
+          "when": "view == gitQuickPickView && viewItem == fileConflict",
           "group": "inline@1"
         },
         {
           "command": "gitReflow.openConflictInEditor",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileConflict",
+          "when": "view == gitQuickPickView && viewItem == fileConflict",
           "group": "inline@2"
         },
         {
           "command": "gitReflow.openConflictMergeEditor",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileConflict",
+          "when": "view == gitQuickPickView && viewItem == fileConflict",
           "group": "0_inline@1"
         },
         {
           "command": "gitReflow.openConflictInEditor",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileConflict",
+          "when": "view == gitQuickPickView && viewItem == fileConflict",
           "group": "0_inline@2"
         },
         {
           "command": "gitReflow.jumpToSource",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileModified",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
           "group": "inline@1"
         },
         {
           "command": "gitReflow.rollbackFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileModified",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
           "group": "inline@2"
         },
         {
           "command": "gitReflow.deleteFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileModified",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
           "group": "inline@3"
         },
         {
           "command": "gitReflow.jumpToSource",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileModified",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
           "group": "0_inline@1"
         },
         {
           "command": "gitReflow.rollbackFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileModified",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
           "group": "0_inline@2"
         },
         {
           "command": "gitReflow.deleteFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileModified",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
           "group": "0_inline@3"
         },
         {
           "command": "gitReflow.rollbackFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileDeleted",
+          "when": "view == gitQuickPickView && viewItem == fileDeleted",
           "group": "inline@1"
         },
         {
           "command": "gitReflow.rollbackFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileDeleted",
+          "when": "view == gitQuickPickView && viewItem == fileDeleted",
           "group": "0_inline@1"
         },
         {
           "command": "gitReflow.jumpToSource",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileOther",
+          "when": "view == gitQuickPickView && viewItem == fileOther",
           "group": "inline@1"
         },
         {
           "command": "gitReflow.deleteFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileOther",
+          "when": "view == gitQuickPickView && viewItem == fileOther",
           "group": "inline@2"
         },
         {
           "command": "gitReflow.jumpToSource",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileOther",
+          "when": "view == gitQuickPickView && viewItem == fileOther",
           "group": "0_inline@1"
         },
         {
           "command": "gitReflow.deleteFile",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == fileOther",
+          "when": "view == gitQuickPickView && viewItem == fileOther",
           "group": "0_inline@2"
         },
         {
           "command": "gitReflow.copyPath",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem =~ /^file(Untracked|Modified|Deleted|Other|Conflict)$/",
+          "when": "view == gitQuickPickView && viewItem =~ /^file(Untracked|Modified|Deleted|Other|Conflict)$/",
           "group": "9_copy@1"
         },
         {
           "command": "gitReflow.copyRelativePath",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem =~ /^file(Untracked|Modified|Deleted|Other|Conflict)$/",
+          "when": "view == gitQuickPickView && viewItem =~ /^file(Untracked|Modified|Deleted|Other|Conflict)$/",
           "group": "9_copy@2"
         },
         {
           "command": "gitReflow.createStash",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == stashSection",
+          "when": "view == gitQuickPickView && viewItem == stashSection",
           "group": "1_actions@1"
         },
         {
           "command": "gitReflow.stashPop",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == stashEntry",
+          "when": "view == gitQuickPickView && viewItem == stashEntry",
           "group": "inline@1"
         },
         {
           "command": "gitReflow.stashPop",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == stashEntry",
+          "when": "view == gitQuickPickView && viewItem == stashEntry",
           "group": "1_actions@1"
         },
         {
           "command": "gitReflow.stashApply",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == stashEntry",
+          "when": "view == gitQuickPickView && viewItem == stashEntry",
           "group": "1_actions@2"
         },
         {
           "command": "gitReflow.stashDrop",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == stashEntry",
+          "when": "view == gitQuickPickView && viewItem == stashEntry",
           "group": "9_danger@1"
         },
         {
           "command": "gitReflow.jumpToSource",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == stashFile",
+          "when": "view == gitQuickPickView && viewItem == stashFile",
           "group": "inline@1"
         },
         {
           "command": "gitReflow.jumpToSource",
-          "when": "view =~ /^gitQuickPick(View|Changes)$/ && viewItem == stashFile",
+          "when": "view == gitQuickPickView && viewItem == stashFile",
           "group": "0_inline@1"
         }
       ],

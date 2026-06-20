@@ -33,6 +33,20 @@ async function copyCommitMessage(itemOrHash) {
   }
 }
 
+// 커밋 시점의 파일 내용을 읽기 전용으로 연다 (diff 아님)
+async function openCommitFileContent(hash, filePath, cwd) {
+  if (!cwd) return;
+  try {
+    const uri = vscode.Uri.parse(
+      `gitreflow://show/${hash}/${filePath}?cwd=${encodeURIComponent(cwd)}`
+    );
+    await vscode.window.showTextDocument(uri, { preview: true });
+  } catch (err) {
+    const msg = err.stderr || err.message || String(err);
+    vscode.window.showErrorMessage(t('failed', msg.trim()));
+  }
+}
+
 async function openCommitFileDiff(hash, filePath, cwd) {
   try {
     const parentRef = `${hash}~1`;
@@ -141,5 +155,6 @@ async function viewDiff(item) {
 }
 
 module.exports = {
-  copyShortHash, copyHash, copyCommitMessage, openCommitFileDiff, openCommitFileVsLocal, openDeletedFileDiff, openFileDiff, viewDiff,
+  copyShortHash, copyHash, copyCommitMessage, openCommitFileContent, openCommitFileDiff,
+  openCommitFileVsLocal, openDeletedFileDiff, openFileDiff, viewDiff,
 };

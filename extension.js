@@ -34,7 +34,7 @@ const { execRebaseMerge } = require('./src/commands/rebase-merge');
 const { execCherryPickCommit } = require('./src/commands/cherry-pick');
 const { execReset, resetToHere } = require('./src/commands/reset');
 const {
-  copyHash, copyCommitMessage, openCommitFileDiff, openCommitFileVsLocal,
+  copyHash, copyCommitMessage, openCommitFileContent, openCommitFileDiff, openCommitFileVsLocal,
   openDeletedFileDiff, openFileDiff, viewDiff,
 } = require('./src/commands/diff');
 const { abortOperation, continueOperation } = require('./src/commands/operation');
@@ -87,15 +87,9 @@ class GitContentProvider {
 
 // ─── Sidebar TreeView ───────────────────────────────────────────────
 
-// 변경 파일 목록 표시 위치 설정: 'workspace' = 작업 공간 트리 안(기본) | 'separate' = 별도 뷰
-function changesViewMode() {
-  return vscode.workspace.getConfiguration('gitReflow').get('changesViewMode', 'workspace');
-}
-
 class GitQuickPickTreeProvider {
-  // role: 'main' = 작업 공간 트리(히스토리/브랜치/스태시 등), 'changes' = 변경 파일 전용 트리
-  constructor(role = 'main') {
-    this._role = role;
+  // 작업 공간 트리 — 변경 파일 + 스태시 (히스토리/브랜치는 webview)
+  constructor() {
     this._fileViewMode = 'list';
     this._onDidChangeTreeData = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -171,14 +165,7 @@ class GitQuickPickTreeProvider {
 
   async getChildren(element) {
     const cwd = getWorkspaceCwd();
-    if (!element) {
-      // 변경 사항 전용 트리는 루트에 변경 파일 목록만 표시 (섹션 헤더 없음)
-      if (this._role === 'changes') {
-        if (!cwd || !await isGitRepo(cwd)) return [];
-        return this._getChangedFileItems(cwd, null);
-      }
-      return this._getRootItems();
-    }
+    if (!element) return this._getRootItems();
     if (!cwd || !await isGitRepo(cwd)) return [];
 
     // 히스토리/브랜치는 webview(gitQuickPickHistory)로 이전 — 트리엔 변경/스태시만.
@@ -217,21 +204,19 @@ class GitQuickPickTreeProvider {
       items.push(abortItem);
     }
 
-    // 변경 사항 (작업 공간 모드일 때만 트리 안에 표시; 별도 뷰/인라인 모드면 생략)
-    if (changesViewMode() === 'workspace') {
-      const commitItem = new vscode.TreeItem(
-        t('sectionCommit'),
-        this._changeCount > 0
-          ? vscode.TreeItemCollapsibleState.Expanded
-          : vscode.TreeItemCollapsibleState.Collapsed
-      );
-      commitItem.id = 'commitSection';
-      commitItem.iconPath = new vscode.ThemeIcon('check');
-      commitItem.contextValue = 'commitSection';
-      commitItem.description = this._changeCount > 0 ? t('changes', this._changeCount) : '';
-      this._commitSectionItem = commitItem;
-      items.push(commitItem);
-    }
+    // 변경 사항
+    const commitItem = new vscode.TreeItem(
+      t('sectionCommit'),
+      this._changeCount > 0
+        ? vscode.TreeItemCollapsibleState.Expanded
+        : vscode.TreeItemCollapsibleState.Collapsed
+    );
+    commitItem.id = 'commitSection';
+    commitItem.iconPath = new vscode.ThemeIcon('check');
+    commitItem.contextValue = 'commitSection';
+    commitItem.description = this._changeCount > 0 ? t('changes', this._changeCount) : '';
+    this._commitSectionItem = commitItem;
+    items.push(commitItem);
 
     // 히스토리·로컬/원격 브랜치 섹션은 webview(gitQuickPickHistory)로 이전됨.
     // 트리에는 변경 사항·스태시만 남는다(색상/고정폭이 불필요한 영역).
@@ -411,7 +396,7 @@ function activate(context) {
   const commitInputProvider = historyProvider;
 
   // Sidebar TreeView 등록
-  const treeProvider = new GitQuickPickTreeProvider('main');
+  const treeProvider = new GitQuickPickTreeProvider();
   const treeView = vscode.window.createTreeView('gitQuickPickView', {
     treeDataProvider: treeProvider,
     showCollapseAll: false,
@@ -419,23 +404,8 @@ function activate(context) {
   });
   context.subscriptions.push(treeView);
 
-  // 변경 사항 전용 TreeView (설정 ON 시 커밋 버튼 바로 아래에 표시)
-  const changesProvider = new GitQuickPickTreeProvider('changes');
-  const changesView = vscode.window.createTreeView('gitQuickPickChanges', {
-    treeDataProvider: changesProvider,
-    showCollapseAll: false,
-    manageCheckboxStateManually: true,
-  });
-  context.subscriptions.push(changesView);
-
-  // 변경 사항(체크박스/커밋)을 다루는 현재 활성 provider — 별도 뷰 모드면 별도 트리, 아니면 작업 공간 트리
-  const activeChangesProvider = () => (changesViewMode() === 'separate' ? changesProvider : treeProvider);
-
-  // 별도 뷰 모드일 때 변경 파일 트리도 함께 갱신
-  async function syncChangesHost() {
-    if (changesViewMode() === 'separate') await changesProvider.updateStatus();
-  }
-
+  // 변경 사항(체크박스/커밋)을 다루는 provider — 작업 공간 트리 하나
+  const activeChangesProvider = () => treeProvider;
 
   // Ctrl+Enter / 웹뷰 커밋 버튼으로 커밋
   context.subscriptions.push(
@@ -454,21 +424,18 @@ function activate(context) {
         : treeProvider._branchName;
     }
     treeView.description = desc;
-    changesView.description = treeProvider._changeCount > 0 ? t('changes', treeProvider._changeCount) : '';
     commitInputProvider.setBranchDescription(desc);
   }
 
   // updateStatus 후 타이틀 + 컨텍스트 갱신
   const origUpdateStatus = treeProvider.updateStatus.bind(treeProvider);
   function updateCheckedFilesContext() {
-    const host = activeChangesProvider();
-    const hasChecked = [...host._checkedFiles.values()].some(v => v);
+    const hasChecked = [...treeProvider._checkedFiles.values()].some(v => v);
     vscode.commands.executeCommand('setContext', 'gitReflow.hasCheckedFiles', hasChecked);
   }
 
   treeProvider.updateStatus = async function () {
     await origUpdateStatus();
-    await syncChangesHost();
     updateTitleDescription();
     vscode.commands.executeCommand('setContext', 'gitReflow.hasChanges', treeProvider._changeCount > 0);
     updateCheckedFilesContext();
@@ -478,12 +445,6 @@ function activate(context) {
   // 패널이 다시 보일 때 자동 새로고침
   context.subscriptions.push(
     treeView.onDidChangeVisibility(e => {
-      if (e.visible) treeProvider.updateStatus();
-    })
-  );
-  context.subscriptions.push(
-    changesView.onDidChangeVisibility(e => {
-      // 래퍼(treeProvider.updateStatus)가 변경사항 트리 갱신 + 컨텍스트까지 함께 처리
       if (e.visible) treeProvider.updateStatus();
     })
   );
@@ -524,20 +485,16 @@ function activate(context) {
   context.subscriptions.push(
     treeView.onDidChangeCheckboxState(e => handleCheckboxChange(treeProvider, e))
   );
-  context.subscriptions.push(
-    changesView.onDidChangeCheckboxState(e => handleCheckboxChange(changesProvider, e))
-  );
 
   // 파일 저장 시 상태 갱신
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(() => treeProvider.updateStatus())
   );
 
-  // 커밋 표시 순서 / 변경사항 분리 설정이 바뀌면 트리뷰를 새로고침해 즉시 반영
+  // 커밋 표시 설정이 바뀌면 즉시 반영
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('gitReflow.commitFieldOrder')) { treeProvider.refresh(); historyProvider.refresh(); }
-      if (e.affectsConfiguration('gitReflow.changesViewMode')) fullRefresh();
       if (e.affectsConfiguration('gitReflow.commitFieldStyles')
         || e.affectsConfiguration('gitReflow.commitFieldWidths')) {
         historyProvider.refresh();
@@ -581,11 +538,10 @@ function activate(context) {
     await treeProvider._fetchStatus();
     treeProvider._commitSectionItem = null;
     treeProvider.refresh();
-    await syncChangesHost();
     updateTitleDescription();
     vscode.commands.executeCommand('setContext', 'gitReflow.hasChanges', treeProvider._changeCount > 0);
     updateCheckedFilesContext();
-    historyProvider.refresh();
+    historyProvider.reload(); // 데이터 바뀜 → 캐시 무효화 후 갱신
   }
   runtime.setFullRefreshFn(fullRefresh);
 
@@ -639,6 +595,7 @@ function activate(context) {
     'gitReflow.openFileDiff': (fileUri) => openFileDiff(fileUri),
     'gitReflow.openDeletedFileDiff': (filePath) => openDeletedFileDiff(filePath),
     'gitReflow.openCommitFileDiff': (hash, filePath, cwd) => openCommitFileDiff(hash, filePath, cwd),
+    'gitReflow.openCommitFileContent': (hash, filePath, cwd) => openCommitFileContent(hash, filePath, cwd),
     'gitReflow.openCommitFileVsLocal': (item) => {
       if (!item) return;
       const cwd = getWorkspaceCwd();
@@ -722,5 +679,5 @@ module.exports = { activate, deactivate };
 // 런타임 의존하지 말 것
 module.exports._internals = {
   t, getCurrentBranch, fileStatusLetter,
-  changesViewMode, isRebaseBackupEnabled, getBackupMaxKeep, getBackupMaxAgeDays,
+  isRebaseBackupEnabled, getBackupMaxKeep, getBackupMaxAgeDays,
 };

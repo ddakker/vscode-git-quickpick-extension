@@ -59,6 +59,28 @@ describe('renderCommitRow', () => {
   });
 });
 
+describe('커밋 파일 펼침 (commitFiles)', () => {
+  const base = {
+    inProgress: null, currentBranch: 'main', history: [COMMIT],
+    localBranches: null, remoteBranches: null, branchHistory: {},
+    expanded: { history: true }, config: CONFIG,
+  };
+  test('commitFiles 없으면 파일행 없음, 있으면 렌더 + chevron ▾', () => {
+    const collapsed = renderLists({ ...base, commitFiles: {} }, LABELS);
+    assert.ok(!collapsed.includes('class="cfile"'));
+    const files = [{ statusCode: 'M', filePath: 'src/a.js' }, { statusCode: 'A', filePath: 'b.txt' }, { statusCode: 'D', filePath: 'c.txt' }];
+    const expanded = renderLists({ ...base, commitFiles: { [COMMIT.hash]: files } }, LABELS);
+    assert.equal((expanded.match(/class="cfile"/g) || []).length, 3);
+    assert.ok(expanded.includes('▾')); // 펼침 표시
+    assert.ok(expanded.includes('data-file="src/a.js"'));
+  });
+  test('상태 글자 매핑 M→U, A→A, D→D', () => {
+    const files = [{ statusCode: 'M', filePath: 'm' }, { statusCode: 'A', filePath: 'a' }, { statusCode: 'D', filePath: 'd' }];
+    const html = renderLists({ ...base, commitFiles: { [COMMIT.hash]: files } }, LABELS);
+    assert.ok(html.includes('cfl-U') && html.includes('cfl-A') && html.includes('cfl-D'));
+  });
+});
+
 describe('renderLists', () => {
   const base = {
     inProgress: null, currentBranch: 'main', history: [COMMIT],
@@ -89,13 +111,12 @@ describe('renderShell', () => {
     labels: { tbRefresh: 'R', inputPlaceholder: 'msg', inputCommit: 'Commit' },
     menu: { commit: [], branch: [] }, inputPosition: pos,
   });
-  test('CSP + nonce 스크립트 + 툴바 포함', () => {
+  test('CSP + nonce 스크립트 포함 (툴바는 네이티브 타이틀바로 이전)', () => {
     const shell = renderShell(opts('top'));
     assert.ok(shell.includes('Content-Security-Policy'));
     assert.ok(shell.includes("script-src 'nonce-N0NCE'"));
     assert.ok(shell.includes('nonce="N0NCE"'));
-    assert.ok(shell.includes('data-cmd="gitReflow.refreshView"'));
-    assert.ok(shell.includes('data-cmd="gitReflow.execForcePush"'));
+    assert.ok(!shell.includes('class="toolbar"')); // 커스텀 HTML 툴바 제거됨
   });
   test('입력 영역(textarea + 커밋 버튼) 포함 (요구 2)', () => {
     const shell = renderShell(opts('top'));
