@@ -12,17 +12,6 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const { buildState } = require('../src/webview/build-state');
 
-// workspaceInWebview 옵션을 지정한 값으로 두고 fn 실행 (설정 스텁 일시 오버라이드)
-async function withWorkspaceOption(fn, value = true) {
-  const orig = stub.workspace.getConfiguration;
-  stub.workspace.getConfiguration = () => ({
-    get: (key, def) => (key === 'workspaceInWebview' ? value : (def === undefined ? null : def)),
-    update: () => Promise.resolve(), has: () => false, inspect: () => undefined,
-  });
-  try { return await fn(); }
-  finally { stub.workspace.getConfiguration = orig; }
-}
-
 // 호출을 기록하는 가짜 git 조회 deps
 function makeDeps(over = {}) {
   const calls = [];
@@ -67,25 +56,31 @@ describe('buildState', () => {
     assert.equal(state.history.length, 1);
   });
 
-  test('history 조회에 historyCount(기본 10) 전달', async () => {
+  test('history 조회: 기본 10개 + 더보기 감지용 +1 = 11개 요청', async () => {
     let opts;
     const { deps } = makeDeps({ getCommitLog: (_cwd, o) => { opts = o; return Promise.resolve([]); } });
     await buildState('/x', { history: true }, deps);
-    assert.equal(opts.count, 10);
+    assert.equal(opts.count, 11);
   });
 
-  test('historyCount 설정값을 조회에 전달', async () => {
-    const orig = stub.workspace.getConfiguration;
-    stub.workspace.getConfiguration = () => ({
-      get: (k, d) => (k === 'historyCount' ? 25 : (d === undefined ? null : d)),
-      update: () => Promise.resolve(), has: () => false, inspect: () => undefined,
-    });
-    try {
-      let opts;
-      const { deps } = makeDeps({ getCommitLog: (_cwd, o) => { opts = o; return Promise.resolve([]); } });
-      await buildState('/x', { history: true }, deps);
-      assert.equal(opts.count, 25);
-    } finally { stub.workspace.getConfiguration = orig; }
+  test('historyHasMore: 11개 반환 시 true, 10개 이하면 false', async () => {
+    const makeLog = (n) => Array.from({ length: n }, (_, i) => ({ hash: `h${i}`, message: 'm', author: 'a', date: 'd' }));
+    const { deps: d1 } = makeDeps({ getCommitLog: () => Promise.resolve(makeLog(11)) });
+    const s1 = await buildState('/x', { history: true }, d1);
+    assert.equal(s1.historyHasMore, true);
+    assert.equal(s1.history.length, 10);
+
+    const { deps: d2 } = makeDeps({ getCommitLog: () => Promise.resolve(makeLog(7)) });
+    const s2 = await buildState('/x', { history: true }, d2);
+    assert.equal(s2.historyHasMore, false);
+    assert.equal(s2.history.length, 7);
+  });
+
+  test('__historyPage 2이면 21개 요청, 최대 20개 표시', async () => {
+    let opts;
+    const { deps } = makeDeps({ getCommitLog: (_cwd, o) => { opts = o; return Promise.resolve([]); } });
+    await buildState('/x', { history: true, __historyPage: 2 }, deps);
+    assert.equal(opts.count, 21);
   });
 
   test('inProgress 감지', async () => {
@@ -140,43 +135,26 @@ describe('buildState', () => {
     assert.deepEqual(state.localBranches, []);
   });
 
-  test('옵션 OFF: 변경/스태시 미조회', async () => {
-    await withWorkspaceOption(async () => {
-      const { calls, deps } = makeDeps();
-      const state = await buildState('/x', {}, deps);
-      assert.equal(state.workspaceInWebview, false);
-      assert.ok(!calls.includes('getChangedFiles'));
-      assert.equal(state.changes, null);
-    }, false);
+  test('변경 사항은 항상 조회 (스태시는 접힘이라 미조회)', async () => {
+    const { calls, deps } = makeDeps();
+    const state = await buildState('/x', {}, deps);
+    assert.ok(calls.includes('getChangedFiles'));
+    assert.equal(state.changes.length, 1);
+    assert.ok(!calls.includes('getStashList')); // 스태시 섹션 접힘
+    assert.equal(state.stashes, null);
   });
 
-  test('옵션 ON: 변경 사항은 항상 조회 (스태시는 접힘이라 미조회)', async () => {
-    await withWorkspaceOption(async () => {
-      const { calls, deps } = makeDeps();
-      const state = await buildState('/x', {}, deps);
-      assert.equal(state.workspaceInWebview, true);
-      assert.ok(calls.includes('getChangedFiles'));
-      assert.equal(state.changes.length, 1);
-      assert.ok(!calls.includes('getStashList')); // 스태시 섹션 접힘
-      assert.equal(state.stashes, null);
-    });
+  test('스태시 펼침: getStashList 호출', async () => {
+    const { calls, deps } = makeDeps();
+    const state = await buildState('/x', { stash: true }, deps);
+    assert.ok(calls.includes('getStashList'));
+    assert.equal(state.stashes.length, 1);
   });
 
-  test('옵션 ON + 스태시 펼침: getStashList 호출', async () => {
-    await withWorkspaceOption(async () => {
-      const { calls, deps } = makeDeps();
-      const state = await buildState('/x', { stash: true }, deps);
-      assert.ok(calls.includes('getStashList'));
-      assert.equal(state.stashes.length, 1);
-    });
-  });
-
-  test('옵션 ON + 스태시 항목 펼침(__stashFiles): getStashFiles 호출', async () => {
-    await withWorkspaceOption(async () => {
-      const { calls, deps } = makeDeps();
-      const state = await buildState('/x', { stash: true, __stashFiles: ['stash@{0}'] }, deps);
-      assert.ok(calls.includes('getStashFiles'));
-      assert.deepEqual(state.stashFiles['stash@{0}'], [{ statusCode: 'M', filePath: 'b.txt' }]);
-    });
+  test('스태시 항목 펼침(__stashFiles): getStashFiles 호출', async () => {
+    const { calls, deps } = makeDeps();
+    const state = await buildState('/x', { stash: true, __stashFiles: ['stash@{0}'] }, deps);
+    assert.ok(calls.includes('getStashFiles'));
+    assert.deepEqual(state.stashFiles['stash@{0}'], [{ statusCode: 'M', filePath: 'b.txt' }]);
   });
 });

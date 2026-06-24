@@ -6,18 +6,15 @@
   "config.language.auto": "Follow OS/VS Code locale",
   "config.language.ko": "Korean (한국어)",
   "config.language.en": "English",
-  "config.workspaceInWebview": "Move Changes and Stashes into the History webview (Changes on top, Stashes at the bottom) and hide the separate Workspace tree view, so one view uses the full width.",
-  "config.messageInputPosition": "Where to place the commit message input in the History view: top or bottom.",
+"config.messageInputPosition": "Where to place the commit message input in the History view: top or bottom.",
   "config.showInputWhenChecked": "Show the commit message input and button only when at least one changed file is checked.",
-  "config.historyCount": "Number of commits to load in History and per-branch history.",
   "config.commitFieldOrder": "Order of fields for each commit. Only the first field is bright (label); the rest are dimmed.",
   "config.commitFieldOrder.opt1": "Message · Date · Author · Hash (default)",
   "config.commitFieldOrder.opt2": "Message · Author · Date · Hash",
   "config.commitFieldOrder.opt3": "Date · Message · Author · Hash",
   "config.commitFieldOrder.opt4": "Author · Date · Hash · Message",
   "config.commitFieldOrder.opt5": "Hash · Message · Author · Date",
-  "config.commitFieldStyles": "Brightness per commit field (bright/dim) in the History & Branches view. e.g. {\"message\":\"bright\",\"date\":\"dim\"}",
-  "config.commitFieldWidths": "Max width hint (px) per meta field (date/author/hash) in the History & Branches table. Columns shrink on narrow sidebars.",
+  "config.authorWidth": "Max width (px) of the Author column in the History & Branches table. Other columns have fixed widths; message takes the remaining space.",
   "config.backupBeforeRebase": "Create a recovery backup branch (backup/<branch>/<timestamp>) before 'Rebase onto'.",
   "config.backupMaxKeep": "When cleaning up backups, keep this many most-recent backups per branch (0 = no count limit).",
   "config.backupMaxAgeDays": "When cleaning up backups, delete backups older than this many days (0 = no age limit).",
@@ -70,5 +67,6 @@
   "command.stashApply": "Apply (restore & keep)",
   "command.stashDrop": "Drop Stash",
   "command.openConflictMergeEditor": "Resolve in Merge Editor",
-  "command.openConflictInEditor": "Open in Editor (conflict markers)"
+  "command.openConflictInEditor": "Open in Editor (conflict markers)",
+  "command.acceptMerge": "Accept Merge"
 }

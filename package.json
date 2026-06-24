@@ -35,12 +35,6 @@
           "type": "webview",
           "contextualTitle": "Git QuickPick",
           "initialSize": 3
-        },
-        {
-          "id": "gitQuickPickView",
-          "name": "%view.workspace%",
-          "contextualTitle": "Git QuickPick",
-          "when": "!config.gitReflow.workspaceInWebview"
         }
       ]
     },
@@ -63,12 +57,6 @@
           ],
           "description": "%config.language%"
         },
-        "gitReflow.workspaceInWebview": {
-          "type": "boolean",
-          "default": true,
-          "order": 2,
-          "description": "%config.workspaceInWebview%"
-        },
         "gitReflow.messageInputPosition": {
           "type": "string",
           "default": "bottom",
@@ -84,13 +72,6 @@
           "default": true,
           "order": 4,
           "description": "%config.showInputWhenChecked%"
-        },
-        "gitReflow.historyCount": {
-          "type": "number",
-          "default": 10,
-          "minimum": 1,
-          "order": 5,
-          "description": "%config.historyCount%"
         },
         "gitReflow.commitFieldOrder": {
           "type": "string",
@@ -112,26 +93,13 @@
           ],
           "description": "%config.commitFieldOrder%"
         },
-        "gitReflow.commitFieldStyles": {
-          "type": "object",
-          "default": {
-            "message": "bright",
-            "date": "dim",
-            "author": "dim",
-            "hash": "dim"
-          },
+        "gitReflow.authorWidth": {
+          "type": "number",
+          "default": 90,
+          "minimum": 40,
+          "maximum": 300,
           "order": 7,
-          "description": "%config.commitFieldStyles%"
-        },
-        "gitReflow.commitFieldWidths": {
-          "type": "object",
-          "default": {
-            "date": 160,
-            "author": 90,
-            "hash": 70
-          },
-          "order": 8,
-          "description": "%config.commitFieldWidths%"
+          "description": "%config.authorWidth%"
         },
         "gitReflow.backupBeforeRebase": {
           "type": "boolean",
@@ -357,6 +325,11 @@
         "icon": "$(go-to-file)"
       },
       {
+        "command": "gitReflow.acceptMerge",
+        "title": "%command.acceptMerge%",
+        "icon": "$(check)"
+      },
+      {
         "command": "gitReflow.openCommitFileVsLocal",
         "title": "%command.openCommitFileVsLocal%",
         "icon": "$(compare-changes)"
@@ -407,11 +380,6 @@
     ],
     "menus": {
       "view/title": [
-        {
-          "command": "gitReflow.toggleFileView",
-          "when": "view == gitQuickPickHistory && gitReflow.hasChanges && !config.gitReflow.workspaceInWebview",
-          "group": "navigation@2"
-        },
         {
           "command": "gitReflow.execPush",
           "when": "view == gitQuickPickHistory",
@@ -500,6 +468,11 @@
           "group": "inline@2"
         },
         {
+          "command": "gitReflow.acceptMerge",
+          "when": "view == gitQuickPickView && viewItem == fileConflict",
+          "group": "inline@3"
+        },
+        {
           "command": "gitReflow.openConflictMergeEditor",
           "when": "view == gitQuickPickView && viewItem == fileConflict",
           "group": "0_inline@1"
@@ -508,6 +481,11 @@
           "command": "gitReflow.openConflictInEditor",
           "when": "view == gitQuickPickView && viewItem == fileConflict",
           "group": "0_inline@2"
+        },
+        {
+          "command": "gitReflow.acceptMerge",
+          "when": "view == gitQuickPickView && viewItem == fileConflict",
+          "group": "0_inline@3"
         },
         {
           "command": "gitReflow.jumpToSource",

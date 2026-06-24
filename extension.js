@@ -4,7 +4,7 @@ const vscode = require('vscode');
 const path = require('path');
 
 // 분리된 모듈 (src/**) — git 실행/조회/뷰/명령
-const { ensureCustomAskpass, execGit } = require('./src/git/exec');
+const { ensureCustomAskpass, execGit, execGitSilent } = require('./src/git/exec');
 const runtime = require('./src/runtime');
 const { getWorkspaceCwd } = require('./src/workspace');
 
@@ -404,12 +404,8 @@ function activate(context) {
   });
   context.subscriptions.push(treeView);
 
-  // 변경/스태시를 웹뷰로 옮기는 옵션. ON 이면 트리 대신 historyProvider 가 변경 제공자.
-  const workspaceOn = () =>
-    vscode.workspace.getConfiguration('gitReflow').get('workspaceInWebview', true) !== false;
-
-  // 변경 사항(체크박스/커밋)을 다루는 provider — 옵션에 따라 트리 또는 웹뷰
-  const activeChangesProvider = () => (workspaceOn() ? historyProvider : treeProvider);
+  // 변경 사항(체크박스/커밋)을 다루는 provider — 항상 웹뷰
+  const activeChangesProvider = () => historyProvider;
 
   // Ctrl+Enter / 웹뷰 커밋 버튼으로 커밋
   context.subscriptions.push(
@@ -443,11 +439,6 @@ function activate(context) {
   treeProvider.updateStatus = async function () {
     await origUpdateStatus();
     updateTitleDescription();
-    // 옵션 ON 이면 변경 컨텍스트는 historyProvider 가 관리(웹뷰 체크 상태 기준).
-    if (!workspaceOn()) {
-      vscode.commands.executeCommand('setContext', 'gitReflow.hasChanges', treeProvider._changeCount > 0);
-      updateCheckedFilesContext();
-    }
   };
   treeProvider.updateStatus();
 
@@ -498,7 +489,7 @@ function activate(context) {
   // 작업 공간 상태 갱신 (트리 + 옵션 ON 이면 웹뷰 변경 목록)
   function refreshWorkspaceStatus() {
     treeProvider.updateStatus();
-    if (workspaceOn()) historyProvider.reload();
+    historyProvider.reload();
   }
 
   // 파일 저장 시 갱신 (기존 파일 수정 반영)
@@ -516,14 +507,14 @@ function activate(context) {
   const fsWatcher = vscode.workspace.createFileSystemWatcher('**/*');
   fsWatcher.onDidCreate(scheduleWorkspaceRefresh);
   fsWatcher.onDidDelete(scheduleWorkspaceRefresh);
+  fsWatcher.onDidChange(scheduleWorkspaceRefresh);
   context.subscriptions.push(fsWatcher);
 
   // 커밋 표시 설정이 바뀌면 즉시 반영
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('gitReflow.commitFieldOrder')) { treeProvider.refresh(); historyProvider.refresh(); }
-      if (e.affectsConfiguration('gitReflow.commitFieldStyles')
-        || e.affectsConfiguration('gitReflow.commitFieldWidths')) {
+      if (e.affectsConfiguration('gitReflow.authorWidth')) {
         historyProvider.refresh();
       }
       if (e.affectsConfiguration('gitReflow.messageInputPosition')) {
@@ -543,12 +534,37 @@ function activate(context) {
             if (pick === t('reloadWindow')) vscode.commands.executeCommand('workbench.action.reloadWindow');
           });
       }
-      // 변경/스태시 웹뷰 이동 옵션 토글 → 뷰 표시는 package.json when 절이 처리,
-      // 데이터/컨텍스트는 양쪽 provider 를 갱신해 즉시 반영.
-      if (e.affectsConfiguration('gitReflow.workspaceInWebview')) {
-        historyProvider.reload();
-        treeProvider.updateStatus();
-      }
+    })
+  );
+
+  // diff 에디터에서 변경사항을 모두 되돌렸을 때 자동 저장
+  // (버퍼 내용이 HEAD와 동일해지면 저장 → git status가 clean으로 인식 → 목록 갱신)
+  const diffRevertTimers = new Map(); // filePath → timer
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument(e => {
+      const doc = e.document;
+      if (!doc.isDirty || doc.isUntitled || doc.uri.scheme !== 'file') return;
+      const cwd = getWorkspaceCwd();
+      if (!cwd) return;
+      const filePath = vscode.workspace.asRelativePath(doc.uri, false);
+      if (!filePath || filePath === doc.uri.fsPath) return;
+      // 변경사항 목록에 있는 파일만 체크 (불필요한 git 조회 방지)
+      const provider = activeChangesProvider();
+      const isTracked = provider._changes
+        ? provider._changes.some(f => f.filePath === filePath)
+        : provider._checkedFiles?.has(filePath);
+      if (!isTracked) return;
+      if (diffRevertTimers.has(filePath)) clearTimeout(diffRevertTimers.get(filePath));
+      diffRevertTimers.set(filePath, setTimeout(async () => {
+        diffRevertTimers.delete(filePath);
+        try {
+          if (!doc.isDirty) return;
+          const { stdout: headContent } = await execGitSilent(['show', `HEAD:${filePath}`], cwd);
+          if (doc.getText() === headContent) {
+            await doc.save();
+          }
+        } catch { /* HEAD에 파일 없거나 git 오류 시 무시 */ }
+      }, 400));
     })
   );
 
@@ -586,11 +602,6 @@ function activate(context) {
     treeProvider._commitSectionItem = null;
     treeProvider.refresh();
     updateTitleDescription();
-    // 옵션 ON 이면 변경 컨텍스트는 historyProvider.reload() 가 관리.
-    if (!workspaceOn()) {
-      vscode.commands.executeCommand('setContext', 'gitReflow.hasChanges', treeProvider._changeCount > 0);
-      updateCheckedFilesContext();
-    }
     historyProvider.reload(); // 데이터 바뀜 → 캐시 무효화 후 갱신
   }
   runtime.setFullRefreshFn(fullRefresh);
@@ -663,6 +674,7 @@ function activate(context) {
       const file = typeof arg === 'string' ? arg : arg && arg.filePath;
       openConflictFileWithMarkers(cwd, file);
     },
+    'gitReflow.acceptMerge': withRefresh((item) => execStageFile(item)),
     // 충돌 파일을 3-way Merge Editor로 열기
     'gitReflow.openConflictMergeEditor': (arg) => {
       const cwd = getWorkspaceCwd();

@@ -111,10 +111,12 @@ const messages = {
   pull:             ['Pull', 'Pull'],
   pullRebase:       ['Pull --rebase', 'Pull --rebase'],
   resolveInEditor:  ['에디터에서 해결', 'Resolve in Editor'],
-  abortRebase:      ['리베이스 취소', 'Abort Rebase'],
-  continueRebase:   ['리베이스 계속', 'Continue Rebase'],
-  abortMerge:       ['머지 취소', 'Abort Merge'],
-  continueMerge:    ['머지 계속', 'Continue Merge'],
+  abortRebase:        ['리베이스 취소', 'Abort Rebase'],
+  continueRebase:     ['리베이스 계속', 'Continue Rebase'],
+  abortMerge:         ['병합 취소', 'Abort Merge'],
+  continueMerge:      ['병합 완료', 'Complete Merge'],
+  abortCherryPick:    ['체리픽 취소', 'Abort Cherry-pick'],
+  continueCherryPick: ['체리픽 계속', 'Continue Cherry-pick'],
   openTerminal:     ['터미널 열기', 'Open Terminal'],
   openingMergeEditor: [
     '충돌 파일 {0}개를 Merge Editor에서 엽니다.',
@@ -313,6 +315,8 @@ const messages = {
   mCopyRelPath:       ['상대 경로 복사', 'Copy Relative Path'],
   mOpenConflictMerge: ['Merge Editor에서 충돌 해결', 'Resolve in Merge Editor'],
   mOpenConflictEditor:['에디터에서 열기 (충돌 마커)', 'Open in Editor (markers)'],
+  mAcceptMerge:       ['병합 완료', 'Accept Merge'],
+  acceptMergeHint:    ['병합을 완료하려면 ✔ 누르세요', 'Click ✔ to accept merge'],
   mCreateStash:       ['변경 사항 스태시', 'Stash Changes'],
   mStashPop:          ['복구 후 삭제 (pop)', 'Pop (restore & drop)'],
   mStashApply:        ['복구 후 보존 (apply)', 'Apply (restore & keep)'],
@@ -328,6 +332,7 @@ const messages = {
   selectRecentMsg:    ['최근 커밋 메시지 선택', 'Select recent commit message'],
   reloadForLanguage:  ['언어 설정을 적용하려면 창을 새로고침하세요.', 'Reload the window to apply the language setting.'],
   reloadWindow:       ['창 새로고침', 'Reload Window'],
+  loadMore:           ['더 불러오기', 'Load more'],
 };
 
 function t(key, ...args) {

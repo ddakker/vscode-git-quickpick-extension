@@ -94,9 +94,14 @@ describe('메뉴 계약 (master 트리 메뉴와 동일 구성)', () => {
   test('localBranchSection: 브랜치 생성', () => {
     assert.deepEqual(cmds('localBranchSection'), ['gitReflow.createBranch']);
   });
-  test('commitFile: 변경 비교 / 로컬과 비교 / 열기(커밋 소스)', () => {
+  test('commitFile: 변경 비교 / 로컬과 비교 / 열기(현재 파일)', () => {
     assert.deepEqual(cmds('commitFile'),
-      ['gitReflow.openCommitFileDiff', 'gitReflow.openCommitFileVsLocal', 'gitReflow.openCommitFileContent']);
+      ['gitReflow.openCommitFileDiff', 'gitReflow.openCommitFileVsLocal', 'gitReflow.openCurrentFile']);
+  });
+  test('commitFileDeleted: 변경 비교 / 로컬과 비교 / 열기(비활성)', () => {
+    assert.deepEqual(cmds('commitFileDeleted'),
+      ['gitReflow.openCommitFileDiff', 'gitReflow.openCommitFileVsLocal', 'gitReflow.openCurrentFile']);
+    assert.ok(menu.commitFileDeleted[2].disabled, '열기는 삭제 파일에서 비활성');
   });
   test('모든 메뉴 항목은 label 과 command 를 가짐', () => {
     for (const items of Object.values(menu)) {

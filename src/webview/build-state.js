@@ -17,23 +17,21 @@ const { resolveCommitFieldOrder } = require('../../lib/commit-format');
 const DEFAULT_FIELD_STYLES = { message: 'bright', date: 'dim', author: 'dim', hash: 'dim' };
 const DEFAULT_FIELD_WIDTHS = { date: 160, author: 90, hash: 70 };
 const DEFAULT_INPUT_POSITION = 'bottom';
-const DEFAULT_HISTORY_COUNT = 10;
+const DEFAULT_HISTORY_COUNT = 10; // 한 페이지당 커밋 수 (더 불러오기 단위)
 
 // vscode 설정에서 커밋 표시 설정을 읽는다 (null/누락 시 기본값 폴백).
 function readCommitConfig() {
   const cfg = vscode.workspace.getConfiguration('gitReflow');
   const fieldOrder = resolveCommitFieldOrder(cfg.get('commitFieldOrder', undefined));
-  const styles = cfg.get('commitFieldStyles', null);
-  const widths = cfg.get('commitFieldWidths', null);
+  const authorWidth = cfg.get('authorWidth', null);
   const pos = cfg.get('messageInputPosition', null);
-  const hc = cfg.get('historyCount', DEFAULT_HISTORY_COUNT);
+  const fieldWidths = { ...DEFAULT_FIELD_WIDTHS };
+  if (typeof authorWidth === 'number' && authorWidth > 0) fieldWidths.author = authorWidth;
   return {
     fieldOrder,
-    fieldStyles: styles && typeof styles === 'object' ? { ...DEFAULT_FIELD_STYLES, ...styles } : DEFAULT_FIELD_STYLES,
-    fieldWidths: widths && typeof widths === 'object' ? { ...DEFAULT_FIELD_WIDTHS, ...widths } : DEFAULT_FIELD_WIDTHS,
+    fieldStyles: DEFAULT_FIELD_STYLES,
+    fieldWidths,
     messageInputPosition: ['top', 'bottom'].includes(pos) ? pos : DEFAULT_INPUT_POSITION,
-    workspaceInWebview: cfg.get('workspaceInWebview', true) !== false,
-    historyCount: Number.isInteger(hc) && hc > 0 ? hc : DEFAULT_HISTORY_COUNT,
   };
 }
 
@@ -51,6 +49,7 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
   } = deps;
 
   cache.branchHistory = cache.branchHistory || {};
+  cache.branchHistoryFetchCount = cache.branchHistoryFetchCount || {};
   cache.commitFiles = cache.commitFiles || {};
   cache.stashFiles = cache.stashFiles || {};
 
@@ -59,39 +58,44 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
     inProgress: null,
     currentBranch: '',
     history: null,
+    historyHasMore: false,
     localBranches: null,
     remoteBranches: null,
     branchHistory: {},
+    branchHistoryHasMore: {},   // { [branchName]: bool }
     commitFiles: {},        // { [hash]: [{statusCode, filePath}] } — 펼친 커밋만
-    workspaceInWebview: config.workspaceInWebview,
-    changes: null,          // [{filePath,statusCode,isStaged,isConflict}] — 옵션 ON 일 때만
+    changes: null,          // [{filePath,statusCode,isStaged,isConflict}]
     stashes: null,          // [{ref,index,message,relTime}] — 스태시 섹션 펼침 시
     stashFiles: {},         // { [ref]: [{statusCode,filePath}] } — 펼친 스태시 항목만
     expanded: { ...expanded },
     config,
   };
 
-  // 진행상태/현재브랜치도 캐시 — 토글 시 git 조회 0회 (네이티브 트리급 반응).
-  // 명령 실행/새로고침 때 provider 가 cache 를 비워 갱신한다.
-  if (cache.inProgress === undefined) cache.inProgress = await hasInProgressOperation(cwd);
+  // inProgress: 파일 존재 확인만이라 빠름 → 캐시 없이 항상 재확인 (외부 머지/리베이스 즉시 반영).
+  // currentBranch: 명령 실행 후 reload() 때 갱신.
+  state.inProgress = await hasInProgressOperation(cwd);
   if (cache.currentBranch === undefined) cache.currentBranch = await getCurrentBranch(cwd);
-  state.inProgress = cache.inProgress;
   state.currentBranch = cache.currentBranch;
 
-  // 히스토리 — 펼쳤을 때만 조회 (lazy + 캐시). 개수는 historyCount 설정.
+  // 히스토리 — 펼쳤을 때만 조회 (lazy + 캐시). N+1 개 조회해 "더 있음" 감지.
   if (expanded.history) {
-    if (!cache.history) cache.history = await getCommitLog(cwd, { count: config.historyCount });
-    state.history = cache.history;
+    const histPage = (Number.isInteger(expanded.__historyPage) && expanded.__historyPage > 0)
+      ? expanded.__historyPage : 1;
+    const fetchCount = DEFAULT_HISTORY_COUNT * histPage + 1;
+    if (!cache.history || cache.historyFetchCount !== fetchCount) {
+      cache.history = await getCommitLog(cwd, { count: fetchCount });
+      cache.historyFetchCount = fetchCount;
+    }
+    state.historyHasMore = cache.history.length > DEFAULT_HISTORY_COUNT * histPage;
+    state.history = cache.history.slice(0, DEFAULT_HISTORY_COUNT * histPage);
   }
 
   // 로컬 브랜치 — 펼쳤을 때 목록 조회 (캐시)
   if (expanded.localBranch) {
     if (!cache.localBranches) cache.localBranches = await getLocalBranches(cwd);
-    state.localBranches = cache.localBranches.map(b => ({
-      name: b.name,
-      description: b.description,
-      isCurrent: b.name === state.currentBranch,
-    }));
+    state.localBranches = cache.localBranches
+      .map(b => ({ name: b.name, description: b.description, isCurrent: b.name === state.currentBranch }))
+      .sort((a, b) => (b.isCurrent ? 1 : 0) - (a.isCurrent ? 1 : 0));
   }
 
   // 원격 브랜치 — ls-remote(네트워크) 포함이므로 펼쳤을 때만 (lazy + 캐시)
@@ -104,22 +108,34 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
     }));
   }
 
-  // 펼쳐진 개별 브랜치의 커밋 히스토리 (예약 키 __commits 제외, 캐시)
-  const RESERVED = ['history', 'localBranch', 'remoteBranch', '__commits'];
-  const branchNames = Object.keys(expanded).filter(k => !RESERVED.includes(k) && expanded[k]);
+  // 펼쳐진 개별 브랜치의 커밋 히스토리 (예약 키 제외, 캐시 + 페이지)
+  const RESERVED = new Set(['history', 'localBranch', 'remoteBranch', 'changes', 'stash',
+    '__commits', '__stashFiles', '__historyPage', '__branchPages']);
+  const branchNames = Object.keys(expanded).filter(k => !RESERVED.has(k) && expanded[k]);
+  const branchPages = (expanded.__branchPages && typeof expanded.__branchPages === 'object')
+    ? expanded.__branchPages : {};
   for (const name of branchNames) {
-    if (cache.branchHistory[name]) { state.branchHistory[name] = cache.branchHistory[name]; continue; }
+    const page = (Number.isInteger(branchPages[name]) && branchPages[name] > 0)
+      ? branchPages[name] : 1;
+    const fetchCount = DEFAULT_HISTORY_COUNT * page + 1;
+    if (cache.branchHistory[name] && cache.branchHistoryFetchCount[name] === fetchCount) {
+      state.branchHistory[name] = cache.branchHistory[name].slice(0, DEFAULT_HISTORY_COUNT * page);
+      state.branchHistoryHasMore[name] = cache.branchHistory[name].length > DEFAULT_HISTORY_COUNT * page;
+      continue;
+    }
     try {
-      // 미페치 원격 브랜치면 먼저 페치 (실패 시 빈 목록)
       const remote = (state.remoteBranches || []).find(b => b.name === name);
       if (remote && remote.unfetched && ensureRemoteBranchFetched) {
         await ensureRemoteBranchFetched(cwd, name);
       }
-      cache.branchHistory[name] = await getCommitLog(cwd, { branch: name, count: config.historyCount });
+      cache.branchHistory[name] = await getCommitLog(cwd, { branch: name, count: fetchCount });
+      cache.branchHistoryFetchCount[name] = fetchCount;
     } catch {
       cache.branchHistory[name] = [];
+      cache.branchHistoryFetchCount[name] = fetchCount;
     }
-    state.branchHistory[name] = cache.branchHistory[name];
+    state.branchHistory[name] = cache.branchHistory[name].slice(0, DEFAULT_HISTORY_COUNT * page);
+    state.branchHistoryHasMore[name] = cache.branchHistory[name].length > DEFAULT_HISTORY_COUNT * page;
   }
 
   // 펼쳐진 커밋의 변경 파일 목록 (커밋 행 펼침, 캐시)
@@ -135,34 +151,32 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
     state.commitFiles[hash] = cache.commitFiles[hash];
   }
 
-  // ─── 변경 사항 + 스태시 (옵션 ON 일 때만) ─────────────────────────
+  // ─── 변경 사항 + 스태시 ────────────────────────────────────────────
   // 변경 파일은 자주 바뀌므로 캐시를 두되, reload() 가 cache 를 비워 갱신한다.
-  if (config.workspaceInWebview) {
-    if (getChangedFiles) {
-      if (!cache.changes) cache.changes = await getChangedFiles(cwd);
-      state.changes = cache.changes;
-    } else {
-      state.changes = [];
-    }
+  if (getChangedFiles) {
+    if (!cache.changes) cache.changes = await getChangedFiles(cwd);
+    state.changes = cache.changes;
+  } else {
+    state.changes = [];
+  }
 
-    // 스태시 목록 — 펼쳤을 때만 조회 (lazy + 캐시)
-    if (expanded.stash && getStashList) {
-      if (!cache.stashes) cache.stashes = await getStashList(cwd);
-      state.stashes = cache.stashes;
-    }
+  // 스태시 목록 — 펼쳤을 때만 조회 (lazy + 캐시)
+  if (expanded.stash && getStashList) {
+    if (!cache.stashes) cache.stashes = await getStashList(cwd);
+    state.stashes = cache.stashes;
+  }
 
-    // 펼친 스태시 항목의 파일 목록 (캐시)
-    const expandedStashes = Array.isArray(expanded.__stashFiles) ? expanded.__stashFiles : [];
-    for (const ref of expandedStashes) {
-      if (!getStashFiles) break;
-      if (cache.stashFiles[ref]) { state.stashFiles[ref] = cache.stashFiles[ref]; continue; }
-      try {
-        cache.stashFiles[ref] = await getStashFiles(cwd, ref);
-      } catch {
-        cache.stashFiles[ref] = [];
-      }
-      state.stashFiles[ref] = cache.stashFiles[ref];
+  // 펼친 스태시 항목의 파일 목록 (캐시)
+  const expandedStashes = Array.isArray(expanded.__stashFiles) ? expanded.__stashFiles : [];
+  for (const ref of expandedStashes) {
+    if (!getStashFiles) break;
+    if (cache.stashFiles[ref]) { state.stashFiles[ref] = cache.stashFiles[ref]; continue; }
+    try {
+      cache.stashFiles[ref] = await getStashFiles(cwd, ref);
+    } catch {
+      cache.stashFiles[ref] = [];
     }
+    state.stashFiles[ref] = cache.stashFiles[ref];
   }
 
   return state;
@@ -171,7 +185,5 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
 module.exports = {
   buildState,
   readCommitConfig,
-  DEFAULT_FIELD_STYLES,
-  DEFAULT_FIELD_WIDTHS,
   DEFAULT_INPUT_POSITION,
 };

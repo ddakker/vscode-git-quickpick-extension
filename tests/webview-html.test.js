@@ -2,7 +2,7 @@
 
 // ─────────────────────────────────────────────────────────────────────
 // lib/webview-html.js — 리스트/셸 렌더 테스트 (순수 함수, 스텁 불필요)
-// fieldStyles→셀 class, fieldWidths→max-width, 컬럼 수/고정폭, 해시 축약.
+// fieldStyles→셀 class, fieldWidths→width, 컬럼 수/고정폭, 해시 축약.
 // ─────────────────────────────────────────────────────────────────────
 
 const { test, describe } = require('node:test');
@@ -38,11 +38,11 @@ describe('renderCommitRow', () => {
     assert.ok(row.includes('cell bright msg'));
     assert.ok(row.includes('cell dim meta'));
   });
-  test('메타 컬럼에 max-width 적용', () => {
+  test('메타 컬럼에 width 적용', () => {
     const row = renderCommitRow(COMMIT, 'historyCommit', CONFIG);
-    assert.ok(row.includes('max-width:160px'));
-    assert.ok(row.includes('max-width:90px'));
-    assert.ok(row.includes('max-width:70px'));
+    assert.ok(row.includes('width:160px'));
+    assert.ok(row.includes('width:90px'));
+    assert.ok(row.includes('width:70px'));
   });
   test('해시는 8자로 축약, 메시지는 이스케이프', () => {
     const row = renderCommitRow(COMMIT, 'historyCommit', CONFIG);
@@ -199,7 +199,7 @@ describe('renderStash', () => {
   });
 });
 
-describe('renderLists + workspaceInWebview', () => {
+describe('renderLists + workspace 섹션', () => {
   const base = {
     inProgress: null, currentBranch: 'main', history: [COMMIT],
     localBranches: null, remoteBranches: null, branchHistory: {}, commitFiles: {},
@@ -216,11 +216,6 @@ describe('renderLists + workspaceInWebview', () => {
   test('옵션 ON: 스태시 섹션이 맨 뒤(원격 뒤)', () => {
     const html = renderLists(base, WS_LABELS);
     assert.ok(html.indexOf('data-section="stash"') > html.indexOf('data-section="remoteBranch"'));
-  });
-  test('옵션 OFF: 변경/스태시 섹션 없음', () => {
-    const html = renderLists({ ...base, workspaceInWebview: false }, WS_LABELS);
-    assert.ok(!html.includes('data-section="changes"'));
-    assert.ok(!html.includes('data-section="stash"'));
   });
 });
 

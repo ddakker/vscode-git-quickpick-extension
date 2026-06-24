@@ -15,6 +15,7 @@ const { getWorkspaceCwd } = require('../workspace');
 const { buildState } = require('./build-state');
 const { renderShell, renderLists } = require('../../lib/webview-html');
 const { fileOpenCommand } = require('../git/queries');
+const { openWorkingFile } = require('../features/conflict');
 const { t, isKo } = require('../i18n');
 
 function nonceStr() {
@@ -39,20 +40,31 @@ function buildLabels() {
     sectionHistory: t('sectionHistory'),
     sectionLocalBranch: t('sectionLocalBranch'),
     sectionRemoteBranch: t('sectionRemoteBranch'),
-    continue: t('continueRebase'),
-    abort: t('abortRebase'),
+    continueLabels: {
+      rebase: t('continueRebase'),
+      merge: t('continueMerge'),
+      'cherry-pick': t('continueCherryPick'),
+    },
+    abortLabels: {
+      rebase: t('abortRebase'),
+      merge: t('abortMerge'),
+      'cherry-pick': t('abortCherryPick'),
+    },
     inProgress: { rebase: t('inProgressRebase'), merge: t('inProgressMerge'), 'cherry-pick': t('inProgressCherryPick') },
     inputPlaceholder: t('inputPlaceholder'), inputCommit: t('inputCommit'), inputRecent: t('inputRecent'),
     // 변경/스태시 섹션
     sectionCommit: t('sectionCommit'), sectionStash: t('sectionStash'),
     selectAll: t('selectAll'), toggleFileView: t('toggleFileView'),
     noChanges: t('noChanges'), noStash: t('noStash'),
+    loadMore: t('loadMore'),
     // 변경 파일 hover 인라인 액션 라벨(툴팁)
     fileActions: {
       jumpToSource: t('mJumpToSource'), stageFile: t('mStageFile'),
       rollbackFile: t('mRollbackFile'), deleteFile: t('mDeleteFile'),
       openConflictMergeEditor: t('mOpenConflictMerge'), openConflictInEditor: t('mOpenConflictEditor'),
+      acceptMerge: t('mAcceptMerge'),
     },
+    acceptMergeHint: t('acceptMergeHint'),
   };
 }
 
@@ -69,9 +81,9 @@ function buildMenu() {
   ];
   const amend = { command: 'gitReflow.execAmendMessage', label: t('mAmend') };
   return {
-    // 히스토리 커밋: 복사 / squash / soft·hard reset (최신 커밋은 amend 가 squash 앞)
+    // 히스토리 커밋: 복사 / squash / soft·hard reset (최신 커밋은 amend 만 활성, 나머지 비활성)
     historyCommit: [...copy, squash, ...reset],
-    historyCommitLatest: [...copy, amend, squash, ...reset],
+    historyCommitLatest: [...copy, amend, { ...squash, disabled: true }, ...reset.map(r => ({ ...r, disabled: true }))],
     // 브랜치 펼친 커밋: 복사 / 체리픽
     branchHistoryCommit: [...copy, { command: 'gitReflow.execCherryPick', label: t('mCherryPick') }],
     // 로컬 브랜치: 전환/pull/force-pull/rebase/merge/삭제
@@ -99,11 +111,17 @@ function buildMenu() {
     localBranchSection: [
       { command: 'gitReflow.createBranch', label: t('mCreateBranch') },
     ],
-    // 커밋 펼친 파일: 비교끼리(변경 비교=더블클릭 / 로컬과 비교) 묶고, 열기는 뒤로
+    // 커밋 펼친 파일: 비교끼리(변경 비교=더블클릭 / 로컬과 비교) 묶고, 열기는 현재 파일
     commitFile: [
       { command: 'gitReflow.openCommitFileDiff', label: t('mFileDiff') },
       { command: 'gitReflow.openCommitFileVsLocal', label: t('mFileCompare') },
-      { command: 'gitReflow.openCommitFileContent', label: t('mFileOpen') },
+      { command: 'gitReflow.openCurrentFile', label: t('mFileOpen') },
+    ],
+    // 삭제된 파일: 열기 비활성화
+    commitFileDeleted: [
+      { command: 'gitReflow.openCommitFileDiff', label: t('mFileDiff') },
+      { command: 'gitReflow.openCommitFileVsLocal', label: t('mFileCompare') },
+      { command: 'gitReflow.openCurrentFile', label: t('mFileOpen'), disabled: true },
     ],
     // ─ 변경 사항 파일 (트리 view/item/context 와 동일 구성) ─
     fileUntracked: [
@@ -131,6 +149,7 @@ function buildMenu() {
     fileConflict: [
       { command: 'gitReflow.openConflictMergeEditor', label: t('mOpenConflictMerge') },
       { command: 'gitReflow.openConflictInEditor', label: t('mOpenConflictEditor') },
+      { command: 'gitReflow.acceptMerge', label: t('mAcceptMerge') },
       { command: 'gitReflow.copyPath', label: t('mCopyPath') },
       { command: 'gitReflow.copyRelativePath', label: t('mCopyRelPath') },
     ],
@@ -162,6 +181,8 @@ class HistoryViewProvider {
     this._expanded = { history: true, changes: true }; // 히스토리·변경 사항 펼침
     this._expandedCommits = new Set();  // 파일목록 펼친 커밋 해시
     this._expandedStashFiles = new Set(); // 파일목록 펼친 스태시 ref
+    this._historyPage = 1;              // 히스토리 페이지 (더 불러오기)
+    this._branchPages = {};             // { branchName: pageNum } 브랜치별 페이지
     this._cache = {};                   // buildState 데이터 캐시 (토글 시 git 조회 0회)
     // 변경 사항(체크박스 커밋 대상) — 옵션 ON 시 트리 대신 이 provider 가 보유
     this._checkedFiles = new Map();     // filePath -> bool
@@ -219,6 +240,13 @@ class HistoryViewProvider {
       case 'toggleStashEntry':
         if (this._expandedStashFiles.has(msg.ref)) this._expandedStashFiles.delete(msg.ref);
         else this._expandedStashFiles.add(msg.ref);
+        return this.refresh();
+      case 'loadMore':
+        if (msg.section === 'history') {
+          this._historyPage += 1;
+        } else if (msg.section === 'branch' && msg.branch) {
+          this._branchPages[msg.branch] = (this._branchPages[msg.branch] || 1) + 1;
+        }
         return this.refresh();
       // ─ 변경 사항 (체크박스/보기 모드) ─
       case 'toggleFile':
@@ -286,6 +314,10 @@ class HistoryViewProvider {
       if (command === 'gitReflow.openCommitFileVsLocal') {
         return void vscode.commands.executeCommand(command, { commitHash: arg.hash, tooltip: arg.file });
       }
+      if (command === 'gitReflow.openCurrentFile') {
+        openWorkingFile(arg.file);
+        return;
+      }
       return void vscode.commands.executeCommand(command, arg.hash, arg.file, cwd);
     } else if (arg && arg.kind === 'changedFile') {
       // 변경 파일 명령은 item.filePath 를 사용 (스테이지/되돌리기/삭제/gitignore/경로복사/소스이동)
@@ -313,16 +345,15 @@ class HistoryViewProvider {
         ...this._expanded,
         __commits: [...this._expandedCommits],
         __stashFiles: [...this._expandedStashFiles],
+        __historyPage: this._historyPage,
+        __branchPages: { ...this._branchPages },
       };
       const state = await buildState(cwd, expanded, undefined, this._cache);
-      // 옵션 ON: 변경 사항 체크 상태/보기 모드를 주입하고 컨텍스트 키 갱신
-      if (state.workspaceInWebview) {
-        this._changes = state.changes || [];
-        this._reconcileChecked(this._changes);
-        state.checkedFiles = new Set(this.getCheckedFiles());
-        state.fileViewMode = this._fileViewMode;
-        this._updateChangesContext();
-      }
+      this._changes = state.changes || [];
+      this._reconcileChecked(this._changes);
+      state.checkedFiles = new Set(this.getCheckedFiles());
+      state.fileViewMode = this._fileViewMode;
+      this._updateChangesContext();
       this._view.webview.postMessage({ type: 'render', listsHtml: renderLists(state, buildLabels()) });
       this.updateInputVisibility();
     } catch (err) {
@@ -351,9 +382,11 @@ class HistoryViewProvider {
     this.updateInputVisibility();
   }
 
-  // 데이터가 바뀐 갱신(명령 실행/새로고침): 캐시 비우고 다시 조회.
+  // 데이터가 바뀐 갱신(명령 실행/새로고침): 캐시 비우고 페이지 초기화 후 다시 조회.
   async reload() {
     this._cache = {};
+    this._historyPage = 1;
+    this._branchPages = {};
     await this.refresh();
   }
 
