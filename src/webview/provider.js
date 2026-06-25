@@ -246,10 +246,13 @@ class HistoryViewProvider {
         if (msg.section === 'remoteBranch' && !this._expanded[msg.section]) {
           delete this._cache.remoteBranches;
         }
+        if (msg.section === 'localBranch' && !this._expanded[msg.section]) {
+          delete this._cache.localBranches;
+        }
         this._expanded[msg.section] = !this._expanded[msg.section];
         return this.refresh();
       case 'toggleBranch':
-        if (!this._expanded[msg.branchName]) {
+        if (this._expanded[msg.branchName]) {
           if (this._cache.branchHistory) delete this._cache.branchHistory[msg.branchName];
           if (this._cache.branchHistoryFetchCount) delete this._cache.branchHistoryFetchCount[msg.branchName];
         }
@@ -346,7 +349,7 @@ class HistoryViewProvider {
     } else if (arg && arg.kind === 'changedFile') {
       // 변경 파일 명령은 item.filePath 를 사용 (스테이지/되돌리기/삭제/gitignore/경로복사/소스이동)
       item = { filePath: arg.path };
-    } else if (arg && arg.kind === 'stash') {
+    } else if (arg && (arg.kind === 'stash' || arg.kind === 'stashFile')) {
       // 스태시 항목/파일 명령은 item.stashRef / item.filePath 사용
       item = { stashRef: arg.ref, filePath: arg.path };
     }

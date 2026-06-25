@@ -10,6 +10,7 @@ const { execGit, execGitSilent } = require('./exec');
 const { t } = require('../i18n');
 const runtime = require('../runtime');
 const {
+  isAuthError,
   isUnmergedStatus,
   parseStashList,
   parseNameStatus,
@@ -58,14 +59,6 @@ async function getLocalBranches(cwd) {
 
 // 인증 실패 감지 + 사용자 알림 (60초 쓰로틀링)
 let _lastAuthWarnTime = 0;
-function _isAuthError(msg) {
-  return msg && (
-    msg.includes('Authentication failed') ||
-    msg.includes('terminal prompts disabled') ||
-    msg.includes('could not read Username') ||
-    msg.includes('could not read Password')
-  );
-}
 function _warnAuthError(remote) {
   const now = Date.now();
   if (now - _lastAuthWarnTime < 60000) return;
@@ -170,8 +163,7 @@ async function fetchRemoteBranch(cwd, branchName) {
   try {
     await execGit(['fetch', remote, name], cwd, { timeout: 60000, _silent: true });
   } catch (err) {
-    const msg = err.message || String(err);
-    if (_isAuthError(msg)) _warnAuthError(remote);
+    if (isAuthError(err)) _warnAuthError(remote);
   }
 }
 

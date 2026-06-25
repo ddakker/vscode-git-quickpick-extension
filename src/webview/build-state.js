@@ -120,7 +120,8 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
     const page = (Number.isInteger(branchPages[name]) && branchPages[name] > 0)
       ? branchPages[name] : 1;
     const fetchCount = DEFAULT_HISTORY_COUNT * page + 1;
-    const remote = (state.remoteBranches || []).find(b => b.name === name);
+    const allRemotes = state.remoteBranches || cache.remoteBranches || [];
+    const remote = allRemotes.find(b => b.name === name);
     const fetchCounted = cache.branchHistoryFetchCount[name] === fetchCount;
 
     // 로컬 브랜치: 캐시가 유효하면 재사용 (git log 생략)
@@ -130,12 +131,12 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
       continue;
     }
 
-    // 원격 브랜치: 캐시 미스(첫 오픈·페이지 변경)일 때만 네트워크 fetch,
+    // 원격 브랜치: 미페치(unfetched) 상태이고 캐시 미스일 때만 네트워크 fetch,
     //             이후 refresh 에서는 git log 를 항상 재실행해 외부 fetch(VS Code 자동 fetch 등)를 반영
     try {
-      if (remote && !fetchCounted) {
+      if (remote && remote.unfetched && !fetchCounted) {
         if (fetchRemoteBranch) await fetchRemoteBranch(cwd, name);
-        else if (remote.unfetched && ensureRemoteBranchFetched) await ensureRemoteBranchFetched(cwd, name);
+        else if (ensureRemoteBranchFetched) await ensureRemoteBranchFetched(cwd, name);
       }
       cache.branchHistory[name] = await getCommitLog(cwd, { branch: name, count: fetchCount });
       cache.branchHistoryFetchCount[name] = fetchCount;
@@ -154,12 +155,12 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
   const _ch = runtime.getOutputChannel();
   for (const key of expandedCommits) {
     const hash = key.includes('|') ? key.split('|').pop() : key;
-    if (!getCommitFiles) break;
     if (cache.commitFiles[hash]) {
       if (_ch) _ch.appendLine(`[buildState] commitFiles cache hit: ${hash.substring(0,8)}`);
       state.commitFiles[hash] = cache.commitFiles[hash];
       continue;
     }
+    if (!getCommitFiles) continue;
     if (_ch) _ch.appendLine(`[buildState] commitFiles fetch: ${hash.substring(0,8)} cwd=${cwd}`);
     try {
       cache.commitFiles[hash] = await getCommitFiles(cwd, hash);

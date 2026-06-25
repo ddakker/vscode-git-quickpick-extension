@@ -439,6 +439,7 @@ function activate(context) {
   treeProvider.updateStatus = async function () {
     await origUpdateStatus();
     updateTitleDescription();
+    updateCheckedFilesContext();
   };
   treeProvider.updateStatus();
 
@@ -492,17 +493,16 @@ function activate(context) {
     historyProvider.reload();
   }
 
-  // 파일 저장 시 갱신 (기존 파일 수정 반영)
-  context.subscriptions.push(
-    vscode.workspace.onDidSaveTextDocument(() => refreshWorkspaceStatus())
-  );
-
   // 파일 생성/삭제 감시 — 새 파일 추가/삭제도 즉시 반영(저장 이벤트가 없어 누락되던 문제).
   // 일괄 변경(체크아웃/npm 등)에서 폭주하지 않도록 짧게 디바운스.
   // .git/ 내부 변경(fetch/commit 등 git 내부 파일)은 무시 — git 작업이 reload 루프를 유발하지 않도록.
   let fsRefreshTimer = null;
   function scheduleWorkspaceRefresh(uri) {
-    if (uri && /[/\\]\.git([/\\]|$)/.test(uri.fsPath)) return;
+    if (uri && /[/\\]\.git([/\\]|$)/.test(uri.fsPath)) {
+      // .git/HEAD 변경 = 외부 터미널에서 브랜치 전환 → currentBranch 캐시 갱신
+      if (/[/\\]\.git[/\\]HEAD$/.test(uri.fsPath)) historyProvider.reload();
+      return;
+    }
     if (fsRefreshTimer) clearTimeout(fsRefreshTimer);
     fsRefreshTimer = setTimeout(() => { fsRefreshTimer = null; refreshWorkspaceStatus(); }, 150);
   }
