@@ -9,8 +9,9 @@ const { isConflict } = require('../../lib/git-helpers');
 const { getConflictedFiles, openMergeEditors } = require('../features/conflict');
 const runtime = require('../runtime');
 
-async function handleGitError(err, action, cwd) {
+async function handleGitError(err, action, cwd, note) {
   const msg = err.stderr || err.stdout || err.message || String(err);
+  const ch = runtime.getOutputChannel();
 
   if (isConflict(msg)) {
     const abortLabel = action === 'rebase' ? t('abortRebase')
@@ -21,18 +22,21 @@ async function handleGitError(err, action, cwd) {
       : ['merge', '--abort'];
 
     const conflictFiles = await getConflictedFiles(cwd);
+    if (ch) ch.appendLine(`[handleGitError] action=${action} conflictFiles(${conflictFiles.length}): ${conflictFiles.join(', ')}${note ? ' note=' + note : ''}`);
 
     // 충돌 감지 즉시 트리 갱신 (abort 버튼 표시)
     const _refresh = runtime.getFullRefreshFn();
     if (_refresh) await _refresh();
 
+    const msgOpts = note ? { modal: true, detail: note } : { modal: true };
     const choice = await vscode.window.showWarningMessage(
       t('conflictDetected'),
-      { modal: true },
+      msgOpts,
       t('resolveInEditor'),
       abortLabel,
       t('openTerminal')
     );
+    if (ch) ch.appendLine(`[handleGitError] user choice: ${choice || '(dismissed)'}`);
 
     if (choice === t('resolveInEditor')) {
       if (conflictFiles.length > 0) {
@@ -47,12 +51,14 @@ async function handleGitError(err, action, cwd) {
         vscode.window.showInformationMessage(t('cherryPickContinueHint'));
       }
     } else if (choice === abortLabel) {
+      if (ch) ch.appendLine(`[handleGitError] aborting ${action}`);
       await execGit(abortCmd, cwd);
     } else if (choice === t('openTerminal')) {
       const terminal = vscode.window.createTerminal({ cwd });
       terminal.show();
     }
   } else {
+    if (ch) ch.appendLine(`[handleGitError] non-conflict error: ${msg.trim()}`);
     vscode.window.showErrorMessage(t('failed', msg.trim()));
   }
 }
