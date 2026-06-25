@@ -65,6 +65,15 @@ function buildLabels() {
       acceptMerge: t('mAcceptMerge'),
     },
     acceptMergeHint: t('acceptMergeHint'),
+    // 커밋 행 hover 인라인 액션 라벨(툴팁)
+    commitActions: {
+      copyHash: t('mCopyHash'), copyMessage: t('mCopyMessage'),
+      amend: t('mAmend'), cherryPick: t('mCherryPick'),
+    },
+    // 커밋 파일 행 hover 인라인 액션 라벨(툴팁)
+    commitFileActions: {
+      openDiff: t('mFileDiff'), compareLocal: t('mFileCompare'), openCurrent: t('mFileOpen'),
+    },
   };
 }
 
@@ -137,12 +146,14 @@ function buildMenu() {
       { command: 'gitReflow.jumpToSource', label: t('mJumpToSource') },
       { command: 'gitReflow.rollbackFile', label: t('mRollbackFile') },
       { command: 'gitReflow.deleteFile', label: t('mDeleteFile') },
+      { command: 'gitReflow.addToGitignore', label: t('mAddGitignore') },
       { command: 'gitReflow.copyPath', label: t('mCopyPath') },
       { command: 'gitReflow.copyRelativePath', label: t('mCopyRelPath') },
     ],
     fileDeleted: [
       { command: 'gitReflow.openChangedFile', label: t('mFileDiff') }, // 더블클릭과 동일(삭제 diff)
       { command: 'gitReflow.rollbackFile', label: t('mRollbackFile') },
+      { command: 'gitReflow.addToGitignore', label: t('mAddGitignore') },
       { command: 'gitReflow.copyPath', label: t('mCopyPath') },
       { command: 'gitReflow.copyRelativePath', label: t('mCopyRelPath') },
     ],
@@ -156,6 +167,7 @@ function buildMenu() {
     fileOther: [
       { command: 'gitReflow.jumpToSource', label: t('mJumpToSource') },
       { command: 'gitReflow.deleteFile', label: t('mDeleteFile') },
+      { command: 'gitReflow.addToGitignore', label: t('mAddGitignore') },
       { command: 'gitReflow.copyPath', label: t('mCopyPath') },
       { command: 'gitReflow.copyRelativePath', label: t('mCopyRelPath') },
     ],
@@ -197,6 +209,9 @@ class HistoryViewProvider {
     this._branchDescription = '';
     this._onDidCommit = new vscode.EventEmitter();
     this.onDidCommit = this._onDidCommit.event;
+    // 동시 refresh 방지: 하나 실행 중이면 하나만 대기
+    this._refreshRunning = false;
+    this._refreshQueued = false;
   }
 
   resolveWebviewView(webviewView) {
@@ -228,15 +243,24 @@ class HistoryViewProvider {
     switch (msg.type) {
       case 'ready': return this.refresh();
       case 'toggleSection':
+        if (msg.section === 'remoteBranch' && !this._expanded[msg.section]) {
+          delete this._cache.remoteBranches;
+        }
         this._expanded[msg.section] = !this._expanded[msg.section];
         return this.refresh();
       case 'toggleBranch':
+        if (!this._expanded[msg.branchName]) {
+          if (this._cache.branchHistory) delete this._cache.branchHistory[msg.branchName];
+          if (this._cache.branchHistoryFetchCount) delete this._cache.branchHistoryFetchCount[msg.branchName];
+        }
         this._expanded[msg.branchName] = !this._expanded[msg.branchName];
         return this.refresh();
-      case 'toggleCommit':
-        if (this._expandedCommits.has(msg.hash)) this._expandedCommits.delete(msg.hash);
-        else this._expandedCommits.add(msg.hash);
+      case 'toggleCommit': {
+        const key = (msg.section || 'history') + '|' + msg.hash;
+        if (this._expandedCommits.has(key)) this._expandedCommits.delete(key);
+        else this._expandedCommits.add(key);
         return this.refresh();
+      }
       case 'toggleStashEntry':
         if (this._expandedStashFiles.has(msg.ref)) this._expandedStashFiles.delete(msg.ref);
         else this._expandedStashFiles.add(msg.ref);
@@ -331,7 +355,26 @@ class HistoryViewProvider {
 
   // ─── 리스트 렌더 (입력영역과 분리) ───────────────────────────────
   // 토글 등 데이터 불변 갱신: 캐시 재사용 → git 조회 0회.
+  // 동시 실행 방지: 이미 실행 중이면 하나만 대기(인증 팝업 중복 방지)
   async refresh() {
+    if (this._refreshRunning) {
+      this._refreshQueued = true;
+      return;
+    }
+    this._refreshRunning = true;
+    this._refreshQueued = false;
+    try {
+      await this._doRefresh();
+    } finally {
+      this._refreshRunning = false;
+      if (this._refreshQueued) {
+        this._refreshQueued = false;
+        setTimeout(() => this.refresh(), 0);
+      }
+    }
+  }
+
+  async _doRefresh() {
     if (!this._view) return;
     const cwd = getWorkspaceCwd();
     if (!cwd) {

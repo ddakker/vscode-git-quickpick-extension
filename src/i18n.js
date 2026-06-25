@@ -279,6 +279,8 @@ const messages = {
     'The stashed changes will be permanently lost. This is hard to undo.'
   ],
   // ─── Credentials ───────────────────────────────────────
+  authFailed:         ['Git 인증 실패 ({0}): 자격 증명을 확인하세요.', 'Git authentication failed ({0}): check your credentials.'],
+  openOutput:         ['출력 채널 열기', 'Open Output'],
   authUsername:       ['{0} 사용자 이름', 'Username for {0}'],
   authPassword:       ['{0}@{1} 비밀번호', 'Password for {0}@{1}'],
   authRequired:       ['{0} 인증이 필요합니다', 'Authentication required for {0}'],

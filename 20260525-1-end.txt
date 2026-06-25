@@ -1,0 +1,18 @@
+## 작업 내용 요약 (2026-06-25)
+
+### 1. .gitignore 추가 기능 개선 (src/commands/file.js)
+- 기존: 항상 파일 끝(appendFileSync)에 추가
+- 변경:
+  1. 시작 문자가 같은 기존 항목 근처(마지막 위치 바로 다음)에 삽입
+  2. 동일 파일명에 ! 접두사가 있으면 (예외 규칙) 해당 줄 자동 제거
+
+### 2. 최초 커밋 파일 목록 안 보이는 버그 수정 (src/git/queries.js)
+- 원인: git diff-tree는 parent 커밋이 없는 최초 커밋(root commit)에서 아무것도 반환 안 함
+- 수정: --root 플래그 추가
+  before: ['diff-tree', '--no-commit-id', '-r', '--no-renames', '--name-status', hash]
+  after:  ['diff-tree', '--root', '--no-commit-id', '-r', '--no-renames', '--name-status', hash]
+- 효과: 일반 커밋에는 영향 없고, 최초 커밋에서도 추가된 파일 목록이 정상 표시됨
+
+### 빌드 결과
+- git-reflow-0.10.0.vsix 생성 완료
+- 설치: code --install-extension git-reflow-0.10.0.vsix

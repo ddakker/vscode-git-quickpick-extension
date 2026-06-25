@@ -28,6 +28,14 @@
       ]
     },
     "views": {
+      "explorer": [
+        {
+          "id": "gitQuickPickView",
+          "name": "%view.workspace%",
+          "contextualTitle": "Git QuickPick",
+          "when": "false"
+        }
+      ],
       "gitQuickPickExplorer": [
         {
           "id": "gitQuickPickHistory",
@@ -518,6 +526,11 @@
           "group": "0_inline@3"
         },
         {
+          "command": "gitReflow.addToGitignore",
+          "when": "view == gitQuickPickView && viewItem == fileModified",
+          "group": "8_gitignore@1"
+        },
+        {
           "command": "gitReflow.rollbackFile",
           "when": "view == gitQuickPickView && viewItem == fileDeleted",
           "group": "inline@1"
@@ -526,6 +539,11 @@
           "command": "gitReflow.rollbackFile",
           "when": "view == gitQuickPickView && viewItem == fileDeleted",
           "group": "0_inline@1"
+        },
+        {
+          "command": "gitReflow.addToGitignore",
+          "when": "view == gitQuickPickView && viewItem == fileDeleted",
+          "group": "8_gitignore@1"
         },
         {
           "command": "gitReflow.jumpToSource",
@@ -546,6 +564,11 @@
           "command": "gitReflow.deleteFile",
           "when": "view == gitQuickPickView && viewItem == fileOther",
           "group": "0_inline@2"
+        },
+        {
+          "command": "gitReflow.addToGitignore",
+          "when": "view == gitQuickPickView && viewItem == fileOther",
+          "group": "8_gitignore@1"
         },
         {
           "command": "gitReflow.copyPath",

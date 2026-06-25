@@ -56,6 +56,31 @@ async function getLocalBranches(cwd) {
   return parseLocalBranches(stdout);
 }
 
+// 인증 실패 감지 + 사용자 알림 (60초 쓰로틀링)
+let _lastAuthWarnTime = 0;
+function _isAuthError(msg) {
+  return msg && (
+    msg.includes('Authentication failed') ||
+    msg.includes('terminal prompts disabled') ||
+    msg.includes('could not read Username') ||
+    msg.includes('could not read Password')
+  );
+}
+function _warnAuthError(remote) {
+  const now = Date.now();
+  if (now - _lastAuthWarnTime < 60000) return;
+  _lastAuthWarnTime = now;
+  vscode.window.showWarningMessage(
+    t('authFailed', remote),
+    t('openOutput')
+  ).then(choice => {
+    if (choice === t('openOutput')) {
+      const ch = runtime.getOutputChannel();
+      if (ch) ch.show(true);
+    }
+  });
+}
+
 async function getRemoteNames(cwd) {
   try {
     const { stdout } = await execGitSilent(['remote'], cwd);
@@ -66,11 +91,10 @@ async function getRemoteNames(cwd) {
 }
 
 // ls-remote 로 원격의 브랜치 이름만 빠르게 조회 (객체 전송 없음)
-// execGit(_silent) 로 호출 — 출력 패널 노이즈 없이 fetchAll 에서 캐시된 creds 재사용
 async function lsRemoteHeads(cwd, remote) {
   try {
     const { stdout } = await execGit(
-      ['ls-remote', '--heads', remote], cwd, { timeout: 15000, _silent: true }
+      ['ls-remote', '--heads', remote], cwd, { timeout: 15000 }
     );
     if (!stdout.trim()) return [];
     return stdout.trim().split('\n').map(line => {
@@ -81,17 +105,20 @@ async function lsRemoteHeads(cwd, remote) {
       return `${remote}/${name}`;
     }).filter(Boolean);
   } catch (err) {
+    const msg = err.message || String(err);
     const outputChannel = runtime.getOutputChannel();
     if (outputChannel) {
-      outputChannel.appendLine(`[WARN] ls-remote ${remote} failed: ${err.message || err}`);
+      outputChannel.appendLine(`[WARN] ls-remote ${remote} failed: ${msg}`);
     }
+    // ls-remote 실패는 미페치 브랜치 목록 조회 실패로 비필수 — 사용자 알림 생략
+    // (fetchRemoteBranch 실패 시 _warnAuthError 가 호출됨)
     return [];
   }
 }
 
 async function getRemoteBranches(cwd) {
   // 1) 로컬 추적 중인 원격 ref — 커밋 메시지/날짜 포함
-  const { stdout } = await execGitSilent([
+  const { stdout } = await execGit([
     'for-each-ref',
     '--sort=-committerdate',
     '--format=%(refname:short)%09%(subject)%09%(committerdate:relative)%09%(symref)',
@@ -131,6 +158,20 @@ async function getStashFiles(cwd, ref) {
     return parseNameStatus(stdout);
   } catch {
     return [];
+  }
+}
+
+// 원격 브랜치 페치 — execGit(_silent) 사용으로 인증 실패 시 자격 증명 재입력 가능
+async function fetchRemoteBranch(cwd, branchName) {
+  const slash = branchName.indexOf('/');
+  if (slash < 0) return;
+  const remote = branchName.substring(0, slash);
+  const name = branchName.substring(slash + 1);
+  try {
+    await execGit(['fetch', remote, name], cwd, { timeout: 60000, _silent: true });
+  } catch (err) {
+    const msg = err.message || String(err);
+    if (_isAuthError(msg)) _warnAuthError(remote);
   }
 }
 
@@ -256,18 +297,24 @@ async function getCommitLog(cwd, options = {}) {
 // --no-renames: 이름변경을 D+A 로 분리해 상태 글자 매핑을 단순화
 async function getCommitFiles(cwd, hash) {
   try {
-    const { stdout } = await execGitSilent(
-      ['diff-tree', '--no-commit-id', '-r', '--no-renames', '--name-status', hash], cwd
+    // --root: 최초 커밋(parent 없음)도 변경 파일 목록을 반환하게 함
+    const { stdout } = await execGit(
+      ['diff-tree', '--root', '--no-commit-id', '-r', '--no-renames', '--name-status', hash], cwd
     );
-    return parseNameStatus(stdout);
-  } catch {
+    const files = parseNameStatus(stdout);
+    const outputChannel = runtime.getOutputChannel();
+    if (outputChannel) outputChannel.appendLine(`[commitFiles] hash=${hash.substring(0,8)} files=${files.length}`);
+    return files;
+  } catch (err) {
+    const outputChannel = runtime.getOutputChannel();
+    if (outputChannel) outputChannel.appendLine(`[commitFiles] ERROR hash=${hash.substring(0,8)} ${err && (err.stderr || err.message || String(err))}`);
     return [];
   }
 }
 
 module.exports = {
   isGitRepo, getCurrentBranch, getLocalBranches, getRemoteNames, lsRemoteHeads,
-  getRemoteBranches, fetchAll, getStashList, getStashFiles, ensureRemoteBranchFetched,
+  getRemoteBranches, fetchAll, fetchRemoteBranch, getStashList, getStashFiles, ensureRemoteBranchFetched,
   localBranchExists, isDetachedHead, hasInProgressOperation, getChangedFiles,
   fileStatusLetter, fileOpenCommand, getCommitLog, getCommitFiles,
 };

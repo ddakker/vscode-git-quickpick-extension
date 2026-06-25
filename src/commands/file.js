@@ -83,14 +83,39 @@ async function execAddToGitignore(item) {
     content = '';
   }
 
-  const lines = content.split(/\r?\n/).map(l => l.trim());
-  if (lines.includes(entry) || lines.includes(item.filePath)) {
+  // 파일 끝 빈줄 제거 (재조합 시 재추가)
+  const lines = content.split(/\r?\n/);
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+
+  const trimmedLines = lines.map(l => l.trim());
+  if (trimmedLines.includes(entry) || trimmedLines.includes(item.filePath)) {
     vscode.window.showInformationMessage(t('gitignoreAlready', item.filePath));
     return;
   }
 
-  const prefix = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
-  fs.appendFileSync(gitignorePath, prefix + entry + '\n');
+  // 동일 파일명에 ! 접두사가 있으면 제거
+  const filtered = lines.filter(l => {
+    const trimmed = l.trim();
+    return trimmed !== `!${entry}` && trimmed !== `!${item.filePath}`;
+  });
+
+  // 시작 문자가 같은 줄 근처(마지막 위치 바로 다음)에 삽입
+  const firstChar = entry[0];
+  let insertAfterIdx = -1;
+  for (let i = 0; i < filtered.length; i++) {
+    const trimmed = filtered[i].trim();
+    if (trimmed && !trimmed.startsWith('#') && trimmed[0] === firstChar) {
+      insertAfterIdx = i;
+    }
+  }
+
+  if (insertAfterIdx >= 0) {
+    filtered.splice(insertAfterIdx + 1, 0, entry);
+  } else {
+    filtered.push(entry);
+  }
+
+  fs.writeFileSync(gitignorePath, filtered.join('\n') + '\n');
   vscode.window.showInformationMessage(t('gitignoreAdded', item.filePath));
 }
 

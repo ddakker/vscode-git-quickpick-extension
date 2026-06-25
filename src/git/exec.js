@@ -145,7 +145,9 @@ async function execGit(args, cwd, options = {}) {
   const outputChannel = runtime.getOutputChannel();
   const cmdStr = `git ${args.join(' ')}`;
   if (outputChannel && !_silent) {
-    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] $ ${cmdStr}`);
+    const now = new Date();
+    const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+    outputChannel.appendLine(`[${ts}] ${cmdStr}`);
     // 출력 패널 자동 표시는 하지 않음 — 하단에 열어둔 터미널이 멋대로 출력 로그로 전환되는 것 방지
     // (로그는 계속 기록되므로 필요하면 "출력" 패널에서 직접 확인 가능)
   }
@@ -156,15 +158,6 @@ async function execGit(args, cwd, options = {}) {
       env: buildGitEnv(),
       ...execOptions,
     });
-    if (outputChannel && !_silent) {
-      if (result.stdout && result.stdout.trim()) {
-        outputChannel.appendLine(result.stdout.trimEnd());
-      }
-      if (result.stderr && result.stderr.trim()) {
-        outputChannel.appendLine(result.stderr.trimEnd());
-      }
-      outputChannel.appendLine('');
-    }
     return result;
   } catch (err) {
     // 인증 에러면 credential 프롬프트 + 1회 재시도

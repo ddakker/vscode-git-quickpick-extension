@@ -499,8 +499,10 @@ function activate(context) {
 
   // 파일 생성/삭제 감시 — 새 파일 추가/삭제도 즉시 반영(저장 이벤트가 없어 누락되던 문제).
   // 일괄 변경(체크아웃/npm 등)에서 폭주하지 않도록 짧게 디바운스.
+  // .git/ 내부 변경(fetch/commit 등 git 내부 파일)은 무시 — git 작업이 reload 루프를 유발하지 않도록.
   let fsRefreshTimer = null;
-  function scheduleWorkspaceRefresh() {
+  function scheduleWorkspaceRefresh(uri) {
+    if (uri && /[/\\]\.git([/\\]|$)/.test(uri.fsPath)) return;
     if (fsRefreshTimer) clearTimeout(fsRefreshTimer);
     fsRefreshTimer = setTimeout(() => { fsRefreshTimer = null; refreshWorkspaceStatus(); }, 150);
   }

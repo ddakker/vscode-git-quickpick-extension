@@ -12,6 +12,7 @@
 
 const vscode = require('vscode');
 const queries = require('../git/queries');
+const runtime = require('../runtime');
 const { resolveCommitFieldOrder } = require('../../lib/commit-format');
 
 const DEFAULT_FIELD_STYLES = { message: 'bright', date: 'dim', author: 'dim', hash: 'dim' };
@@ -44,7 +45,7 @@ function readCommitConfig() {
 async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
   const {
     getCurrentBranch, hasInProgressOperation, getLocalBranches,
-    getRemoteBranches, getCommitLog, ensureRemoteBranchFetched, getCommitFiles,
+    getRemoteBranches, getCommitLog, fetchRemoteBranch, ensureRemoteBranchFetched, getCommitFiles,
     getChangedFiles, getStashList, getStashFiles,
   } = deps;
 
@@ -64,6 +65,7 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
     branchHistory: {},
     branchHistoryHasMore: {},   // { [branchName]: bool }
     commitFiles: {},        // { [hash]: [{statusCode, filePath}] } — 펼친 커밋만
+    expandedCommitKeys: [], // ["section|hash", ...] — 섹션별 펼침 상태
     changes: null,          // [{filePath,statusCode,isStaged,isConflict}]
     stashes: null,          // [{ref,index,message,relTime}] — 스태시 섹션 펼침 시
     stashFiles: {},         // { [ref]: [{statusCode,filePath}] } — 펼친 스태시 항목만
@@ -118,15 +120,22 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
     const page = (Number.isInteger(branchPages[name]) && branchPages[name] > 0)
       ? branchPages[name] : 1;
     const fetchCount = DEFAULT_HISTORY_COUNT * page + 1;
-    if (cache.branchHistory[name] && cache.branchHistoryFetchCount[name] === fetchCount) {
+    const remote = (state.remoteBranches || []).find(b => b.name === name);
+    const fetchCounted = cache.branchHistoryFetchCount[name] === fetchCount;
+
+    // 로컬 브랜치: 캐시가 유효하면 재사용 (git log 생략)
+    if (!remote && cache.branchHistory[name] && fetchCounted) {
       state.branchHistory[name] = cache.branchHistory[name].slice(0, DEFAULT_HISTORY_COUNT * page);
       state.branchHistoryHasMore[name] = cache.branchHistory[name].length > DEFAULT_HISTORY_COUNT * page;
       continue;
     }
+
+    // 원격 브랜치: 캐시 미스(첫 오픈·페이지 변경)일 때만 네트워크 fetch,
+    //             이후 refresh 에서는 git log 를 항상 재실행해 외부 fetch(VS Code 자동 fetch 등)를 반영
     try {
-      const remote = (state.remoteBranches || []).find(b => b.name === name);
-      if (remote && remote.unfetched && ensureRemoteBranchFetched) {
-        await ensureRemoteBranchFetched(cwd, name);
+      if (remote && !fetchCounted) {
+        if (fetchRemoteBranch) await fetchRemoteBranch(cwd, name);
+        else if (remote.unfetched && ensureRemoteBranchFetched) await ensureRemoteBranchFetched(cwd, name);
       }
       cache.branchHistory[name] = await getCommitLog(cwd, { branch: name, count: fetchCount });
       cache.branchHistoryFetchCount[name] = fetchCount;
@@ -139,10 +148,19 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
   }
 
   // 펼쳐진 커밋의 변경 파일 목록 (커밋 행 펼침, 캐시)
+  // __commits 는 "section|hash" 복합 키 배열 (구버전 호환: 순수 해시도 허용)
   const expandedCommits = Array.isArray(expanded.__commits) ? expanded.__commits : [];
-  for (const hash of expandedCommits) {
+  state.expandedCommitKeys = expandedCommits;
+  const _ch = runtime.getOutputChannel();
+  for (const key of expandedCommits) {
+    const hash = key.includes('|') ? key.split('|').pop() : key;
     if (!getCommitFiles) break;
-    if (cache.commitFiles[hash]) { state.commitFiles[hash] = cache.commitFiles[hash]; continue; }
+    if (cache.commitFiles[hash]) {
+      if (_ch) _ch.appendLine(`[buildState] commitFiles cache hit: ${hash.substring(0,8)}`);
+      state.commitFiles[hash] = cache.commitFiles[hash];
+      continue;
+    }
+    if (_ch) _ch.appendLine(`[buildState] commitFiles fetch: ${hash.substring(0,8)} cwd=${cwd}`);
     try {
       cache.commitFiles[hash] = await getCommitFiles(cwd, hash);
     } catch {
