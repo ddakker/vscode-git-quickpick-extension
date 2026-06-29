@@ -2,7 +2,7 @@
 
 VS Code sidebar extension for all Git operations.
 
-> [한국어](README_en.md)
+> [한국어](README_ko.md)
 
 ![Git QuickPick](git-quickpick.png)
 
@@ -263,7 +263,7 @@ Before                               After
 ./package.sh
 
 # Install
-code --install-extension git-reflow-0.9.5.vsix
+code --install-extension git-reflow-0.10.2.vsix
 ```
 
 Or in VS Code: Extensions (Ctrl+Shift+X) → ... → Install from VSIX

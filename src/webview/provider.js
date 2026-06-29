@@ -251,13 +251,12 @@ class HistoryViewProvider {
         }
         this._expanded[msg.section] = !this._expanded[msg.section];
         return this.refresh();
-      case 'toggleBranch':
-        if (this._expanded[msg.branchName]) {
-          if (this._cache.branchHistory) delete this._cache.branchHistory[msg.branchName];
-          if (this._cache.branchHistoryFetchCount) delete this._cache.branchHistoryFetchCount[msg.branchName];
-        }
-        this._expanded[msg.branchName] = !this._expanded[msg.branchName];
-        return this.refresh();
+      case 'toggleBranch': {
+        const isOpening = !this._expanded[msg.branchName];
+        this._expanded[msg.branchName] = isOpening;
+        const withFetch = isOpening && msg.ctx === 'remoteBranch';
+        return this.refresh({ withFetch });
+      }
       case 'toggleCommit': {
         const key = (msg.section || 'history') + '|' + msg.hash;
         if (this._expandedCommits.has(key)) this._expandedCommits.delete(key);
@@ -357,9 +356,9 @@ class HistoryViewProvider {
   }
 
   // ─── 리스트 렌더 (입력영역과 분리) ───────────────────────────────
-  // 토글 등 데이터 불변 갱신: 캐시 재사용 → git 조회 0회.
+  // 내부 자동 갱신: 캐시 재사용 → git fetch 없이 git 조회만.
   // 동시 실행 방지: 이미 실행 중이면 하나만 대기(인증 팝업 중복 방지)
-  async refresh() {
+  async refresh(options = {}) {
     if (this._refreshRunning) {
       this._refreshQueued = true;
       return;
@@ -367,7 +366,7 @@ class HistoryViewProvider {
     this._refreshRunning = true;
     this._refreshQueued = false;
     try {
-      await this._doRefresh();
+      await this._doRefresh(options);
     } finally {
       this._refreshRunning = false;
       if (this._refreshQueued) {
@@ -377,7 +376,7 @@ class HistoryViewProvider {
     }
   }
 
-  async _doRefresh() {
+  async _doRefresh(options = {}) {
     if (!this._view) return;
     const cwd = getWorkspaceCwd();
     if (!cwd) {
@@ -394,7 +393,7 @@ class HistoryViewProvider {
         __historyPage: this._historyPage,
         __branchPages: { ...this._branchPages },
       };
-      const state = await buildState(cwd, expanded, undefined, this._cache);
+      const state = await buildState(cwd, expanded, undefined, this._cache, options);
       this._changes = state.changes || [];
       this._reconcileChecked(this._changes);
       state.checkedFiles = new Set(this.getCheckedFiles());
@@ -429,11 +428,20 @@ class HistoryViewProvider {
   }
 
   // 데이터가 바뀐 갱신(명령 실행/새로고침): 캐시 비우고 페이지 초기화 후 다시 조회.
+  // 데이터 변경 후 내부 갱신: 캐시 초기화, fetch 없음
   async reload() {
     this._cache = {};
     this._historyPage = 1;
     this._branchPages = {};
     await this.refresh();
+  }
+
+  // 사용자가 직접 새로고침 버튼을 누를 때: 캐시 초기화 + 원격 fetch 포함
+  async reloadWithFetch() {
+    this._cache = {};
+    this._historyPage = 1;
+    this._branchPages = {};
+    await this.refresh({ withFetch: true });
   }
 
   // ─── 변경 사항 제공자 역할 (트리 GitQuickPickTreeProvider 와 동일 인터페이스) ──

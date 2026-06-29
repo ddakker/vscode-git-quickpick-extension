@@ -599,12 +599,13 @@ function activate(context) {
   }
 
   // 전체 트리 갱신 (상태 + UI + 컨텍스트)
-  async function fullRefresh() {
+  async function fullRefresh(withFetch = false) {
     await treeProvider._fetchStatus();
     treeProvider._commitSectionItem = null;
     treeProvider.refresh();
     updateTitleDescription();
-    historyProvider.reload(); // 데이터 바뀜 → 캐시 무효화 후 갱신
+    if (withFetch) historyProvider.reloadWithFetch();
+    else historyProvider.reload();
   }
   runtime.setFullRefreshFn(fullRefresh);
 
@@ -646,7 +647,7 @@ function activate(context) {
     'gitReflow.execForcePull': withRefresh(() => execForcePull()),
     'gitReflow.execPull': withRefresh(() => execPull()),
     'gitReflow.refreshView': async () => {
-      await fullRefresh();
+      await fullRefresh(true);
     },
     // 사이드바 인라인 액션 명령
     'gitReflow.execRebase': withRefresh((item) => execRebaseMerge(item, 'rebase')),

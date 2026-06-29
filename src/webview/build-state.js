@@ -42,7 +42,8 @@ function readCommitConfig() {
 //   deps: git 조회 함수 (테스트 주입용). 기본은 실제 queries.
 //   cache: 영속 캐시 객체(provider 보유). 한 번 조회한 데이터를 재사용해 토글이 빠르다.
 //          명령 실행/새로고침 시 provider 가 cache 를 비워 다시 조회하게 한다.
-async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
+async function buildState(cwd, expanded = {}, deps = queries, cache = {}, options = {}) {
+  const withFetch = !!options.withFetch;
   const {
     getCurrentBranch, hasInProgressOperation, getLocalBranches,
     getRemoteBranches, getCommitLog, fetchRemoteBranch, ensureRemoteBranchFetched, getCommitFiles,
@@ -131,10 +132,9 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}) {
       continue;
     }
 
-    // 원격 브랜치: 미페치(unfetched) 상태이고 캐시 미스일 때만 네트워크 fetch,
-    //             이후 refresh 에서는 git log 를 항상 재실행해 외부 fetch(VS Code 자동 fetch 등)를 반영
+    // 원격 브랜치: 사용자가 직접 새로고침할 때(withFetch)만 네트워크 fetch
     try {
-      if (remote && remote.unfetched && !fetchCounted) {
+      if (remote && withFetch) {
         if (fetchRemoteBranch) await fetchRemoteBranch(cwd, name);
         else if (ensureRemoteBranchFetched) await ensureRemoteBranchFetched(cwd, name);
       }

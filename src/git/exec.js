@@ -128,14 +128,9 @@ async function retryWithCredentials(args, cwd, options, origErr) {
   }
 }
 
-// 내부 헬퍼용 (로그 없이 실행 — status, rev-parse 등 빈번한 조회)
-async function execGitSilent(args, cwd, options = {}) {
-  return execFileAsync('git', args, {
-    cwd,
-    maxBuffer: 1024 * 1024,
-    env: buildGitEnv(),
-    ...options,
-  });
+// 내부 헬퍼용 (auth retry 없이 실행 — status, rev-parse 등 빈번한 조회)
+function execGitSilent(args, cwd, options = {}) {
+  return execGit(args, cwd, { _noAuthRetry: true, ...options });
 }
 
 // 사용자 명령용 (출력 로그에 기록 + 자동 표시)
@@ -158,6 +153,13 @@ async function execGit(args, cwd, options = {}) {
       env: buildGitEnv(),
       ...execOptions,
     });
+    if (outputChannel && !_silent && result.stdout) {
+      const lines = result.stdout.trimEnd().split('\n').filter(l => l.trim());
+      if (lines.length > 0) {
+        const suffix = lines.length > 3 ? `\n... (${lines.length - 3}줄 생략)` : '';
+        outputChannel.appendLine(lines.slice(0, 3).join('\n') + suffix);
+      }
+    }
     return result;
   } catch (err) {
     // 인증 에러면 credential 프롬프트 + 1회 재시도

@@ -154,14 +154,13 @@ async function getStashFiles(cwd, ref) {
   }
 }
 
-// 원격 브랜치 페치 — execGit(_silent) 사용으로 인증 실패 시 자격 증명 재입력 가능
 async function fetchRemoteBranch(cwd, branchName) {
   const slash = branchName.indexOf('/');
   if (slash < 0) return;
   const remote = branchName.substring(0, slash);
   const name = branchName.substring(slash + 1);
   try {
-    await execGit(['fetch', remote, name], cwd, { timeout: 60000, _silent: true });
+    await execGit(['fetch', remote, name], cwd, { timeout: 60000 });
   } catch (err) {
     if (isAuthError(err)) _warnAuthError(remote);
   }

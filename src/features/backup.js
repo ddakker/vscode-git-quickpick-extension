@@ -40,7 +40,7 @@ async function createRebaseBackupIfEnabled(cwd, currentBranch) {
 
   const backupName = buildRebaseBackupName(currentBranch);
   try {
-    await execGit(['branch', backupName, 'HEAD'], cwd, { _silent: true });
+    await execGit(['branch', backupName, 'HEAD'], cwd);
     vscode.window.showInformationMessage(t('backupCreated', backupName));
   } catch (err) {
     const msg = (err.stderr || err.message || String(err)).trim();
@@ -115,7 +115,7 @@ async function execCleanupBackups() {
   let fail = 0;
   for (const name of stale) {
     try {
-      await execGit(['branch', '-D', name], cwd, { _silent: true });
+      await execGit(['branch', '-D', name], cwd);
       ok++;
     } catch {
       fail++;
