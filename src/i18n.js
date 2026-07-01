@@ -330,6 +330,7 @@ const messages = {
   inputCommit:        ['커밋', 'Commit'],
   inputCommitDefault: ['✓ 커밋', '✓ Commit'],
   inputRecent:        ['최근 메시지', 'Recent messages'],
+  inputHookRun:       ['Hook 실행', 'Run hooks'],
   noCommitHistory:    ['커밋 메시지 히스토리가 없습니다', 'No commit message history'],
   selectRecentMsg:    ['최근 커밋 메시지 선택', 'Select recent commit message'],
   reloadForLanguage:  ['언어 설정을 적용하려면 창을 새로고침하세요.', 'Reload the window to apply the language setting.'],

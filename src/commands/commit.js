@@ -23,6 +23,8 @@ async function execCommit(treeProvider, commitInputProvider) {
     return;
   }
 
+  const noVerify = commitInputProvider.getNoVerify();
+
   try {
     try {
       await execGit(['reset', 'HEAD'], cwd);
@@ -31,10 +33,13 @@ async function execCommit(treeProvider, commitInputProvider) {
     }
     // 사용자가 -f로 강제 추가한 ignore 파일도 다시 스테이징되도록 --force 사용
     await execGit(['add', '--force', '--', ...checkedFiles], cwd);
-    await execGit(['commit', '-m', commitMessage], cwd);
+    const commitArgs = ['commit', '-m', commitMessage];
+    if (noVerify) commitArgs.push('--no-verify');
+    await execGit(commitArgs, cwd);
     vscode.window.showInformationMessage(t('commitSuccess', commitMessage));
     commitInputProvider.addHistory(commitMessage);
     commitInputProvider.clearMessage();
+    commitInputProvider.resetNoVerify();
   } catch (err) {
     const msg = err.stderr || err.message || String(err);
     vscode.window.showErrorMessage(t('failed', msg.trim()));

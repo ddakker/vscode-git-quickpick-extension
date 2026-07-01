@@ -52,6 +52,7 @@ function buildLabels() {
     },
     inProgress: { rebase: t('inProgressRebase'), merge: t('inProgressMerge'), 'cherry-pick': t('inProgressCherryPick') },
     inputPlaceholder: t('inputPlaceholder'), inputCommit: t('inputCommit'), inputRecent: t('inputRecent'),
+    inputHookRun: t('inputHookRun'),
     // 변경/스태시 섹션
     sectionCommit: t('sectionCommit'), sectionStash: t('sectionStash'),
     selectAll: t('selectAll'), toggleFileView: t('toggleFileView'),
@@ -203,6 +204,7 @@ class HistoryViewProvider {
     this._externalHasChecked = false;   // 트리 모드 체크 상태 (extension.js 가 주입)
     // 커밋 입력 상태 (CommitInputViewProvider 에서 흡수)
     this._message = '';
+    this._noVerify = false;             // 커밋 시 훅 건너뛰기 체크박스 상태
     this._pendingResolve = null;       // squash/amend 등 외부 대기
     this._pendingButtonLabel = null;
     this._pendingCancelLabel = null;
@@ -305,6 +307,7 @@ class HistoryViewProvider {
       case 'input': this._message = msg.value; return;
       case 'commit':
         this._message = msg.value;
+        this._noVerify = !!msg.noVerify;
         if (this._pendingResolve) {
           const resolve = this._pendingResolve;
           this._pendingResolve = null;
@@ -504,6 +507,14 @@ class HistoryViewProvider {
   clearMessage() {
     this._message = '';
     if (this._view) this._view.webview.postMessage({ type: 'clear' });
+  }
+
+  // 커밋 시 pre-commit/commit-msg 훅을 건너뛸지 여부 (체크박스 — 커밋 완료 후 자동 해제).
+  getNoVerify() { return !!this._noVerify; }
+
+  resetNoVerify() {
+    this._noVerify = false;
+    if (this._view) this._view.webview.postMessage({ type: 'resetNoVerify' });
   }
 
   getHistory() { return this._globalState.get('commitHistory', []); }
