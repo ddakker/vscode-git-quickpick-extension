@@ -27,3 +27,4 @@ require('./config-readers.test');
 require('./webview-html.test');
 require('./build-state.test');
 require('./fake-item-contract.test');
+require('./provider-refresh.test');

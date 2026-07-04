@@ -488,9 +488,12 @@ function activate(context) {
   );
 
   // 작업 공간 상태 갱신 (트리 + 옵션 ON 이면 웹뷰 변경 목록)
+  // historyProvider 쪽은 reload()가 아닌 refreshChanges()를 사용 — reload()는 히스토리
+  // 캐시/페이지까지 초기화해서, 커밋 히스토리와 무관한 파일 저장만으로도 "더 불러오기"로
+  // 펼쳐둔 페이지가 1로 리셋되어 버튼이 사라지는 원인이 됐다.
   function refreshWorkspaceStatus() {
     treeProvider.updateStatus();
-    historyProvider.reload();
+    historyProvider.refreshChanges();
   }
 
   // 파일 생성/삭제 감시 — 새 파일 추가/삭제도 즉시 반영(저장 이벤트가 없어 누락되던 문제).

@@ -447,6 +447,14 @@ class HistoryViewProvider {
     await this.refresh({ withFetch: true });
   }
 
+  // 워크스페이스 파일 생성/수정/삭제(커밋 히스토리와 무관한 변경) 시 "변경 사항" 상태만 갱신.
+  // 히스토리 캐시/페이지는 그대로 둔다 — 지우면 파일 저장할 때마다 "더 불러오기"로
+  // 펼쳐둔 히스토리 페이지가 1로 리셋되어 버튼이 사라진 것처럼 보이는 문제가 있었다.
+  async refreshChanges() {
+    delete this._cache.changes;
+    await this.refresh();
+  }
+
   // ─── 변경 사항 제공자 역할 (트리 GitQuickPickTreeProvider 와 동일 인터페이스) ──
   getCheckedFiles() {
     const result = [];
