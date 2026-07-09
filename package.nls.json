@@ -57,6 +57,7 @@
   "command.execAmendMessage": "Edit Commit Message",
   "command.jumpToSource": "Jump to Source",
   "command.openCommitFileVsLocal": "Compare with Local",
+  "command.copyBranchName": "Copy Branch Name",
   "command.copyPath": "Copy Path",
   "command.copyRelativePath": "Copy Relative Path",
   "command.addToGitignore": "Add to .gitignore",

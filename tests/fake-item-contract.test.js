@@ -75,20 +75,21 @@ describe('메뉴 계약 (master 트리 메뉴와 동일 구성)', () => {
     assert.deepEqual(cmds('branchHistoryCommit'),
       ['gitReflow.copyHash', 'gitReflow.copyMessage', 'gitReflow.execCherryPick']);
   });
-  test('localBranch: 전환/pull/force-pull/rebase/merge/삭제', () => {
+  test('localBranch: 전환/pull/force-pull/rebase/merge/삭제/브랜치명 복사', () => {
     assert.deepEqual(cmds('localBranch'), [
       'gitReflow.execSwitch', 'gitReflow.execBranchPull', 'gitReflow.execForceBranchPull',
       'gitReflow.execRebase', 'gitReflow.execMerge', 'gitReflow.execDeleteBranch',
+      'gitReflow.copyBranchName',
     ]);
   });
-  test('localBranchCurrent: pull/force-pull 만', () => {
+  test('localBranchCurrent: pull/force-pull/브랜치명 복사', () => {
     assert.deepEqual(cmds('localBranchCurrent'),
-      ['gitReflow.execBranchPull', 'gitReflow.execForceBranchPull']);
+      ['gitReflow.execBranchPull', 'gitReflow.execForceBranchPull', 'gitReflow.copyBranchName']);
   });
-  test('remoteBranch: 전환/rebase/merge/원격삭제', () => {
+  test('remoteBranch: 전환/rebase/merge/원격삭제/브랜치명 복사', () => {
     assert.deepEqual(cmds('remoteBranch'), [
       'gitReflow.execSwitch', 'gitReflow.execRebase', 'gitReflow.execMerge',
-      'gitReflow.execDeleteRemoteBranch',
+      'gitReflow.execDeleteRemoteBranch', 'gitReflow.copyBranchName',
     ]);
   });
   test('localBranchSection: 브랜치 생성', () => {

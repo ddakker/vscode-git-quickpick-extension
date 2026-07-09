@@ -288,6 +288,11 @@
         "icon": "$(warning)"
       },
       {
+        "command": "gitReflow.copyBranchName",
+        "title": "%command.copyBranchName%",
+        "icon": "$(clippy)"
+      },
+      {
         "command": "gitReflow.execDeleteBranch",
         "title": "%command.execDeleteBranch%",
         "icon": "$(trash)"

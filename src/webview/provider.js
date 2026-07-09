@@ -56,6 +56,7 @@ function buildLabels() {
     // 변경/스태시 섹션
     sectionCommit: t('sectionCommit'), sectionStash: t('sectionStash'),
     selectAll: t('selectAll'), toggleFileView: t('toggleFileView'),
+    copyBranchNameHint: t('copyBranchNameHint'),
     noChanges: t('noChanges'), noStash: t('noStash'),
     loadMore: t('loadMore'),
     // 변경 파일 hover 인라인 액션 라벨(툴팁)
@@ -96,7 +97,7 @@ function buildMenu() {
     historyCommitLatest: [...copy, amend, { ...squash, disabled: true }, ...reset.map(r => ({ ...r, disabled: true }))],
     // 브랜치 펼친 커밋: 복사 / 체리픽
     branchHistoryCommit: [...copy, { command: 'gitReflow.execCherryPick', label: t('mCherryPick') }],
-    // 로컬 브랜치: 전환/pull/force-pull/rebase/merge/삭제
+    // 로컬 브랜치: 전환/pull/force-pull/rebase/merge/삭제/브랜치명 복사
     localBranch: [
       { command: 'gitReflow.execSwitch', label: t('mSwitch') },
       { command: 'gitReflow.execBranchPull', label: t('mBranchPull') },
@@ -104,18 +105,21 @@ function buildMenu() {
       { command: 'gitReflow.execRebase', label: t('mRebase') },
       { command: 'gitReflow.execMerge', label: t('mMerge') },
       { command: 'gitReflow.execDeleteBranch', label: t('mDeleteBranch') },
+      { command: 'gitReflow.copyBranchName', label: t('mCopyBranchName') },
     ],
-    // 현재 브랜치: pull/force-pull 만 (전환·삭제 불가)
+    // 현재 브랜치: pull/force-pull/브랜치명 복사 (전환·삭제 불가)
     localBranchCurrent: [
       { command: 'gitReflow.execBranchPull', label: t('mBranchPull') },
       { command: 'gitReflow.execForceBranchPull', label: t('mForceBranchPull') },
+      { command: 'gitReflow.copyBranchName', label: t('mCopyBranchName') },
     ],
-    // 원격 브랜치: 전환/rebase/merge/원격삭제
+    // 원격 브랜치: 전환/rebase/merge/원격삭제/브랜치명 복사
     remoteBranch: [
       { command: 'gitReflow.execSwitch', label: t('mSwitch') },
       { command: 'gitReflow.execRebase', label: t('mRebase') },
       { command: 'gitReflow.execMerge', label: t('mMerge') },
       { command: 'gitReflow.execDeleteRemoteBranch', label: t('mDeleteRemoteBranch') },
+      { command: 'gitReflow.copyBranchName', label: t('mCopyBranchName') },
     ],
     // 로컬 브랜치 섹션 헤더: 브랜치 생성 (master 의 localBranchSection 메뉴)
     localBranchSection: [

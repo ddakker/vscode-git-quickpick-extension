@@ -222,6 +222,14 @@ async function execSwitch(item) {
   }
 }
 
+// 브랜치명을 클립보드에 복사 (로컬/원격 공통). 원격은 'origin/foo' 형태 그대로 복사.
+async function copyBranchName(item) {
+  const name = item && item.branchName;
+  if (!name) return;
+  await vscode.env.clipboard.writeText(name);
+  vscode.window.showInformationMessage(t('branchNameCopied', name));
+}
+
 module.exports = {
-  execDeleteBranch, execDeleteRemoteBranch, createBranch, execSwitch,
+  execDeleteBranch, execDeleteRemoteBranch, createBranch, execSwitch, copyBranchName,
 };
