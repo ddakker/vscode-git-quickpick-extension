@@ -8,6 +8,7 @@
   "config.language.en": "English (영문)",
 "config.messageInputPosition": "히스토리 뷰의 커밋 메시지 입력창 위치: 위(top) 또는 아래(bottom).",
   "config.showInputWhenChecked": "변경 파일을 하나 이상 체크했을 때만 커밋 메시지 입력창과 버튼을 표시합니다.",
+  "config.branchPrefixes": "브랜치 생성 시 추천할 접두어 목록을 콤마(,)로 구분해 입력합니다 (예: feature/,bugfix/,hotfix/,release/). 입력값 그대로 사용하며, 비우면 기본값을 사용합니다.",
   "config.commitFieldOrder": "커밋마다 표시할 필드 순서. 맨 앞 필드만 밝은 색(제목)이고 나머지는 흐린 색입니다.",
   "config.commitFieldOrder.opt1": "메시지 · 날짜 · 사용자 · 해시 (기본)",
   "config.commitFieldOrder.opt2": "메시지 · 사용자 · 날짜 · 해시",

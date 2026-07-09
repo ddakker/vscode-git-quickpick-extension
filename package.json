@@ -81,6 +81,12 @@
           "order": 4,
           "description": "%config.showInputWhenChecked%"
         },
+        "gitReflow.branchPrefixes": {
+          "type": "string",
+          "default": "feature/,bugfix/,hotfix/,release/",
+          "order": 5,
+          "description": "%config.branchPrefixes%"
+        },
         "gitReflow.commitFieldOrder": {
           "type": "string",
           "default": "message,date,author,hash",

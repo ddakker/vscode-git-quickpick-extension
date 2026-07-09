@@ -8,6 +8,7 @@
   "config.language.en": "English",
 "config.messageInputPosition": "Where to place the commit message input in the History view: top or bottom.",
   "config.showInputWhenChecked": "Show the commit message input and button only when at least one changed file is checked.",
+  "config.branchPrefixes": "Comma-separated branch name prefixes suggested when creating a branch (e.g. feature/,bugfix/,hotfix/,release/). Used as-is; leave empty to use the defaults.",
   "config.commitFieldOrder": "Order of fields for each commit. Only the first field is bright (label); the rest are dimmed.",
   "config.commitFieldOrder.opt1": "Message · Date · Author · Hash (default)",
   "config.commitFieldOrder.opt2": "Message · Author · Date · Hash",

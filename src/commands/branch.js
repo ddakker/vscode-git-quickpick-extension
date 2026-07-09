@@ -82,31 +82,46 @@ async function execDeleteRemoteBranch(item) {
   }
 }
 
-// 표준 접두어 목록. 새 컨벤션이 생기면 여기에만 추가하면 된다.
-const BRANCH_PREFIXES = ['feature/', 'bugfix/', 'hotfix/', 'release/'];
+// 설정이 비었을 때 쓰는 기본 접두어 목록.
+const DEFAULT_BRANCH_PREFIXES = ['feature/', 'bugfix/', 'hotfix/', 'release/'];
+
+// 설정(gitReflow.branchPrefixes)의 콤마 구분 문자열을 접두어 배열로 변환한다.
+// 입력값은 그대로 사용하고, 비어 있으면 기본값으로 대체한다.
+function getBranchPrefixes() {
+  const raw = vscode.workspace.getConfiguration('gitReflow').get('branchPrefixes', '');
+  const list = String(raw).split(',').map((s) => s.trim()).filter(Boolean);
+  return list.length ? list : DEFAULT_BRANCH_PREFIXES;
+}
 
 // 접두어 자동완성 입력창.
 // - 'f' 입력 → 라벨 필터로 feature/ 가 위로. Enter/클릭 → 입력창에 'feature/' 채우고 창 유지
 // - 이어서 이슈번호 입력 → 'feature/1234' → Enter 로 생성
 function pickBranchName() {
   return new Promise((resolve) => {
+    const prefixes = getBranchPrefixes();
     const qp = vscode.window.createQuickPick();
     qp.title = t('mCreateBranch');
     qp.placeholder = t('branchPrefixHint');
 
-    const hintItems = BRANCH_PREFIXES.map((full) => ({
+    const hintItems = prefixes.map((full) => ({
       label: full,
       description: t('branchPrefixKey'),
       prefix: full,
     }));
 
+    // 접두어만 입력된 상태(예: 'feature/')로는 생성하지 않는다.
+    const isPrefixOnly = (v) => prefixes.includes(v) || v.endsWith('/');
+
     const render = (value) => {
       const v = value.trim();
       const items = [];
-      // 접두어를 채운 뒤 뒤에 내용까지 있으면(예: feature/1234) 라벨 필터에
+      // 접두어 뒤에 내용까지 있으면(예: feature/1234, fix-1234) 라벨 필터에
       // 걸리지 않으므로, 항상 보이는 생성 후보를 맨 위에 만들어 Enter 를 받는다.
+      // 슬래시 컨벤션과 그 외 접두어(fix- 등)를 모두 지원한다.
       const slash = v.indexOf('/');
-      if (slash >= 0 && v.length > slash + 1) {
+      const afterSlash = slash >= 0 && v.length > slash + 1;
+      const afterPrefix = prefixes.some((p) => v.startsWith(p) && v.length > p.length);
+      if (v && (afterSlash || afterPrefix)) {
         items.push({
           label: `$(git-branch) ${v}`,
           description: t('branchCreateThis'),
@@ -130,7 +145,7 @@ function pickBranchName() {
         return;
       }
       const name = (sel && sel.create ? sel.create : qp.value).trim();
-      if (!name || name.endsWith('/')) return; // 접두어만으론 생성하지 않음
+      if (!name || isPrefixOnly(name)) return; // 접두어만으론 생성하지 않음
       resolve(name);
       qp.hide();
     });
