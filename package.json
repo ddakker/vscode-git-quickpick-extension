@@ -2,7 +2,7 @@
   "name": "git-reflow",
   "displayName": "Git QuickPick",
   "description": "%extension.description%",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "publisher": "ddakker",
   "engines": {
     "vscode": "^1.74.0"

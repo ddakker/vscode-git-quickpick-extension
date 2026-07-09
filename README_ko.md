@@ -228,8 +228,9 @@ Rebase/Merge/Cherry-pick 중 충돌이 발생하면:
 
 | 기능 | 방법 |
 |---|---|
-| **브랜치 생성** | Local Branches 섹션 우클릭 → "브랜치 생성" |
+| **브랜치 생성** | Local Branches 섹션 우클릭 → "브랜치 생성". 접두어 키 입력(예: `f` → `feature/`)으로 자동 채운 뒤 이슈번호를 이어 붙입니다. 접두어 목록은 `gitReflow.branchPrefixes`(콤마 구분)로 설정할 수 있습니다. |
 | **브랜치 전환** | 브랜치 우클릭 → "브랜치 전환" |
+| **브랜치 이름 복사** | 브랜치 우클릭 → "브랜치 이름 복사" |
 | **원격에서 풀** | 브랜치 우클릭 → "원격에서 풀" |
 | **원격에서 강제 풀** | 브랜치 우클릭 → "원격에서 강제 풀" (확인 2회) |
 | **원격 브랜치 체크아웃** | Remote Branches에서 우클릭 → "브랜치 전환" (로컬 트래킹 자동 생성) |
@@ -285,7 +286,7 @@ rebase 같은 위험한 작업 전에 복구 지점을 자동으로 남기고, �
 ./package.sh
 
 # 설치
-code --install-extension git-reflow-0.10.2.vsix
+code --install-extension git-reflow-0.10.3.vsix
 ```
 
 또는 VS Code에서: Extensions (Ctrl+Shift+X) → ... → Install from VSIX

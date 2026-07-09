@@ -230,8 +230,9 @@ Before                               After
 
 | Feature | How |
 |---|---|
-| **Create Branch** | Right-click Local Branches section → "Create Branch" |
+| **Create Branch** | Right-click Local Branches section → "Create Branch". Type a prefix key (e.g. `f` → `feature/`) to auto-fill, then add the issue number. Prefix list is configurable via `gitReflow.branchPrefixes` (comma-separated). |
 | **Switch Branch** | Right-click branch → "Switch Branch" |
+| **Copy Branch Name** | Right-click branch → "Copy Branch Name" |
 | **Pull from Remote** | Right-click branch → "Pull from Remote" |
 | **Force Pull from Remote** | Right-click branch → "Force Pull from Remote" (2 confirmations) |
 | **Remote Checkout** | Right-click in Remote Branches → "Switch Branch" (auto-creates local tracking) |
@@ -263,7 +264,7 @@ Before                               After
 ./package.sh
 
 # Install
-code --install-extension git-reflow-0.10.2.vsix
+code --install-extension git-reflow-0.10.3.vsix
 ```
 
 Or in VS Code: Extensions (Ctrl+Shift+X) → ... → Install from VSIX
