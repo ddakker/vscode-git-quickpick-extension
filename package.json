@@ -404,9 +404,14 @@
           "group": "navigation@6"
         },
         {
-          "command": "gitReflow.refreshView",
+          "command": "gitReflow.createBranch",
           "when": "view == gitQuickPickHistory",
           "group": "navigation@7"
+        },
+        {
+          "command": "gitReflow.refreshView",
+          "when": "view == gitQuickPickHistory",
+          "group": "navigation@8"
         },
         {
           "command": "gitReflow.execForcePush",

@@ -229,6 +229,10 @@ const messages = {
   switchSuccess:      ['{0} 브랜치로 전환 완료', 'Switched to branch {0}'],
   enterBranchName:    ['새 브랜치 이름을 입력하세요', 'Enter new branch name'],
   branchCreated:      ['브랜치 생성 완료: {0}', 'Branch created: {0}'],
+  branchPrefixHint:   ['접두어를 고르면 뒤에 이슈번호를 입력하세요 (예: f → feature/ → feature/1234)',
+                       'Pick a prefix, then type the issue number (e.g. f → feature/ → feature/1234)'],
+  branchCreateThis:   ['이 이름으로 브랜치 생성', 'Create branch with this name'],
+  branchPrefixKey:    ['Enter 로 채우기', 'Enter to fill in'],
   // ─── Branch delete ─────────────────────────────────────
   delete:             ['삭제', 'Delete'],
   forceDelete:        ['강제 삭제', 'Force delete'],

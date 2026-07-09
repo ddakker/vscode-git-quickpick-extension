@@ -82,14 +82,73 @@ async function execDeleteRemoteBranch(item) {
   }
 }
 
+// 표준 접두어 목록. 새 컨벤션이 생기면 여기에만 추가하면 된다.
+const BRANCH_PREFIXES = ['feature/', 'bugfix/', 'hotfix/', 'release/'];
+
+// 접두어 자동완성 입력창.
+// - 'f' 입력 → 라벨 필터로 feature/ 가 위로. Enter/클릭 → 입력창에 'feature/' 채우고 창 유지
+// - 이어서 이슈번호 입력 → 'feature/1234' → Enter 로 생성
+function pickBranchName() {
+  return new Promise((resolve) => {
+    const qp = vscode.window.createQuickPick();
+    qp.title = t('mCreateBranch');
+    qp.placeholder = t('branchPrefixHint');
+
+    const hintItems = BRANCH_PREFIXES.map((full) => ({
+      label: full,
+      description: t('branchPrefixKey'),
+      prefix: full,
+    }));
+
+    const render = (value) => {
+      const v = value.trim();
+      const items = [];
+      // 접두어를 채운 뒤 뒤에 내용까지 있으면(예: feature/1234) 라벨 필터에
+      // 걸리지 않으므로, 항상 보이는 생성 후보를 맨 위에 만들어 Enter 를 받는다.
+      const slash = v.indexOf('/');
+      if (slash >= 0 && v.length > slash + 1) {
+        items.push({
+          label: `$(git-branch) ${v}`,
+          description: t('branchCreateThis'),
+          create: v,
+          alwaysShow: true,
+        });
+      }
+      // 접두어 힌트는 QuickPick 기본 필터에 맡긴다(f→feature/, b→bugfix/ ...).
+      items.push(...hintItems);
+      qp.items = items;
+    };
+
+    render('');
+    qp.onDidChangeValue(render);
+
+    qp.onDidAccept(() => {
+      const sel = qp.activeItems[0];
+      // 접두어를 골랐으면 생성하지 않고 입력창에 채워만 준다(커서는 뒤로).
+      if (sel && sel.prefix) {
+        qp.value = sel.prefix;
+        return;
+      }
+      const name = (sel && sel.create ? sel.create : qp.value).trim();
+      if (!name || name.endsWith('/')) return; // 접두어만으론 생성하지 않음
+      resolve(name);
+      qp.hide();
+    });
+
+    qp.onDidHide(() => {
+      qp.dispose();
+      resolve(undefined);
+    });
+
+    qp.show();
+  });
+}
+
 async function createBranch() {
   const cwd = await validateGitWorkspace();
   if (!cwd) return;
 
-  const branchName = await vscode.window.showInputBox({
-    prompt: t('enterBranchName'),
-    placeHolder: t('enterBranchName'),
-  });
+  const branchName = await pickBranchName();
   if (!branchName || !branchName.trim()) return;
 
   try {
