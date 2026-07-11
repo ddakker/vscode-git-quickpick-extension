@@ -287,6 +287,12 @@ const messages = {
   // ─── Credentials ───────────────────────────────────────
   authFailed:         ['Git 인증 실패 ({0}): 자격 증명을 확인하세요.', 'Git authentication failed ({0}): check your credentials.'],
   openOutput:         ['출력 채널 열기', 'Open Output'],
+  hookFailedPrefix:   [
+    '⚠️ 커밋 훅(pre-commit) 실패 — 아래 로그를 확인하세요. (건너뛰려면 --no-verify)',
+    '⚠️ Commit hook (pre-commit) failed — check the log below. (use --no-verify to skip)'
+  ],
+  statusHookFailed:   ['$(error) 커밋 훅 실패', '$(error) Commit hook failed'],
+  statusGitFailed:    ['$(error) Git 실패', '$(error) Git failed'],
   authUsername:       ['{0} 사용자 이름', 'Username for {0}'],
   authPassword:       ['{0}@{1} 비밀번호', 'Password for {0}@{1}'],
   authRequired:       ['{0} 인증이 필요합니다', 'Authentication required for {0}'],

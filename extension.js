@@ -372,6 +372,12 @@ function activate(context) {
   // git 실행 모듈(src/git/exec.js)이 같은 채널로 로그하도록 공유
   runtime.setOutputChannel(outputChannel);
 
+  // 하단 상태바 에러 배지 — git/훅 실패 시 잠깐 빨갛게 표시, 클릭하면 출력 채널 열기
+  const errorStatusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+  errorStatusItem.command = 'gitReflow.openOutput';
+  context.subscriptions.push(errorStatusItem);
+  runtime.setErrorStatusItem(errorStatusItem);
+
   // 자체 askpass 스크립트 생성 (Remote-SSH에서 credential 프롬프트 지원)
   try {
     ensureCustomAskpass(context);
@@ -718,6 +724,10 @@ function activate(context) {
     'gitReflow.stashDrop': withRefresh((item) => execStashDrop(item)),
     'gitReflow.openSettings': () =>
       vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${context.extension.id}`),
+    'gitReflow.openOutput': () => {
+      const ch = runtime.getOutputChannel();
+      if (ch) ch.show(true);
+    },
     'gitReflow.execDeleteRemoteBranch': withRefresh((item) => execDeleteRemoteBranch(item)),
     // Command Palette 명령 (하위 호환)
     'gitReflow.rebasemergeLocal': withRefresh(() => rebaseMerge(false)),

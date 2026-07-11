@@ -5,9 +5,42 @@
 const vscode = require('vscode');
 const { t } = require('../i18n');
 const { execGit } = require('../git/exec');
-const { isConflict } = require('../../lib/git-helpers');
+const { isConflict, formatGitError, isHookError } = require('../../lib/git-helpers');
 const { getConflictedFiles, openMergeEditors } = require('../features/conflict');
 const runtime = require('../runtime');
+
+// 상태바 에러 표시 자동 숨김 타이머 (연속 에러 시 이전 타이머 갱신)
+let _statusTimer = null;
+
+// 하단 상태바에 빨간 에러 배지를 잠깐 띄운다. 클릭하면 출력 채널이 열린다(명령 연결됨).
+function flashErrorStatus(text) {
+  const item = runtime.getErrorStatusItem();
+  if (!item) return;
+  item.text = text;
+  item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+  item.show();
+  if (_statusTimer) clearTimeout(_statusTimer);
+  _statusTimer = setTimeout(() => { item.hide(); _statusTimer = null; }, 8000);
+}
+
+// git 에러를 사용자에게 표시 — stderr+stdout 을 합친 상세 메시지 + "출력 채널 열기" 버튼.
+// 훅(pre-commit 등) 실패 상세는 stdout·여러 줄로 나와 알림창에서 잘리므로
+// 버튼으로 출력 패널에서 전체 로그를 볼 수 있게 하고, 하단 상태바에도 빨간 배지를 띄운다.
+async function showGitError(err) {
+  const raw = formatGitError(err);
+  const hook = isHookError(raw);
+  const msg = hook ? `${t('hookFailedPrefix')}\n${raw}` : raw;
+
+  flashErrorStatus(hook ? t('statusHookFailed') : t('statusGitFailed'));
+
+  const choice = await vscode.window.showErrorMessage(
+    t('failed', msg), t('openOutput')
+  );
+  if (choice === t('openOutput')) {
+    const ch = runtime.getOutputChannel();
+    if (ch) ch.show(true);
+  }
+}
 
 async function handleGitError(err, action, cwd, note) {
   const msg = err.stderr || err.stdout || err.message || String(err);
@@ -63,4 +96,4 @@ async function handleGitError(err, action, cwd, note) {
   }
 }
 
-module.exports = { handleGitError };
+module.exports = { handleGitError, showGitError };

@@ -6,6 +6,8 @@ const vscode = require('vscode');
 const { t, isKo } = require('../i18n');
 const { execGit, execGitSilent } = require('../git/exec');
 const { validateGitWorkspace } = require('../workspace');
+const { showGitError } = require('./error');
+const { formatGitError } = require('../../lib/git-helpers');
 
 async function execCommit(treeProvider, commitInputProvider) {
   const cwd = await validateGitWorkspace();
@@ -41,8 +43,7 @@ async function execCommit(treeProvider, commitInputProvider) {
     commitInputProvider.clearMessage();
     commitInputProvider.resetNoVerify();
   } catch (err) {
-    const msg = err.stderr || err.message || String(err);
-    vscode.window.showErrorMessage(t('failed', msg.trim()));
+    await showGitError(err);
   }
 }
 
@@ -131,7 +132,7 @@ async function execSquashCommits(item, commitInputProvider) {
         : `${commits.length} commits squashed.`
     );
   } catch (err) {
-    const errMsg = err.stderr || err.message || String(err);
+    const errMsg = formatGitError(err);
     vscode.window.showErrorMessage(
       isKo ? `커밋 합치기 실패: ${errMsg}` : `Squash failed: ${errMsg}`
     );
@@ -210,7 +211,7 @@ async function execAmendMessage(item, commitInputProvider) {
       isKo ? '커밋 메시지가 수정되었습니다.' : 'Commit message amended.'
     );
   } catch (err) {
-    const errMsg = err.stderr || err.message || String(err);
+    const errMsg = formatGitError(err);
     vscode.window.showErrorMessage(
       isKo ? `메시지 수정 실패: ${errMsg}` : `Amend failed: ${errMsg}`
     );
