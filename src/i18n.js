@@ -297,6 +297,31 @@ const messages = {
   authPassword:       ['{0}@{1} 비밀번호', 'Password for {0}@{1}'],
   authRequired:       ['{0} 인증이 필요합니다', 'Authentication required for {0}'],
   authCancelled:      ['인증이 취소되었습니다.', 'Authentication cancelled.'],
+  // ─── Squash / Amend ────────────────────────────────────
+  squashNeedTwo:      ['합칠 커밋이 2개 이상이어야 합니다.', 'Need at least 2 commits to squash.'],
+  squashLabel:        ['커밋 합치기', 'Squash Commits'],
+  squashPrompt:       [
+    '{0}개 커밋을 합칩니다. 메시지를 수정한 뒤 [{1}] 버튼을 누르세요.',
+    'Squashing {0} commits. Edit the message and press [{1}].'
+  ],
+  squashPlaceholder:  ['합쳐진 커밋의 시간을 선택하세요', 'Choose the time for the squashed commit'],
+  squashDone:         ['{0}개 커밋이 합쳐졌습니다.', '{0} commits squashed.'],
+  squashFailed:       ['커밋 합치기 실패: {0}', 'Squash failed: {0}'],
+  amendLabel:         ['메시지 수정', 'Amend Message'],
+  amendOutdated:      [
+    '히스토리가 최신이 아닙니다. 새로고침 후 다시 시도하세요.',
+    'History is outdated. Please refresh and try again.'
+  ],
+  amendPrompt:        [
+    '커밋 메시지를 수정한 뒤 [{0}] 버튼을 누르세요.',
+    'Edit the commit message and press [{0}].'
+  ],
+  amendPlaceholder:   ['수정된 커밋의 시간을 선택하세요', 'Choose the time for the amended commit'],
+  amendDone:          ['커밋 메시지가 수정되었습니다.', 'Commit message amended.'],
+  amendFailed:        ['메시지 수정 실패: {0}', 'Amend failed: {0}'],
+  commitTimeTitle:    ['커밋 시간 선택', 'Commit time'],
+  commitTimeKeep:     ['원래 커밋 시간 유지', 'Keep original commit time'],
+  commitTimeNow:      ['현재 시간 사용', 'Use current time'],
   // ─── .gitignore ────────────────────────────────────────
   gitignoreAdded:     ['{0} 항목을 .gitignore에 추가했습니다.', 'Added {0} to .gitignore.'],
   gitignoreAlready:   ['{0} 항목은 이미 .gitignore에 있습니다.', '{0} is already in .gitignore.'],

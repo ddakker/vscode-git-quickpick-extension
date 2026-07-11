@@ -3,11 +3,22 @@
 // 커밋 명령 — 사이드바 커밋 / squash / amend (커밋 입력 뷰 인스턴스를 주입받음).
 
 const vscode = require('vscode');
-const { t, isKo } = require('../i18n');
+const { t } = require('../i18n');
 const { execGit, execGitSilent } = require('../git/exec');
 const { validateGitWorkspace } = require('../workspace');
 const { showGitError } = require('./error');
 const { formatGitError } = require('../../lib/git-helpers');
+
+// 커밋 시간 선택 QuickPick — squash/amend 공통. 취소 시 undefined 반환.
+function pickCommitTime(placeHolder) {
+  return vscode.window.showQuickPick(
+    [
+      { label: t('commitTimeKeep'), value: 'original' },
+      { label: t('commitTimeNow'), value: 'now' },
+    ],
+    { title: t('commitTimeTitle'), placeHolder }
+  );
+}
 
 async function execCommit(treeProvider, commitInputProvider) {
   const cwd = await validateGitWorkspace();
@@ -59,9 +70,7 @@ async function execSquashCommits(item, commitInputProvider) {
   );
   const commits = logOut.trim().split('\n').filter(Boolean);
   if (commits.length < 2) {
-    vscode.window.showWarningMessage(
-      isKo ? '합칠 커밋이 2개 이상이어야 합니다.' : 'Need at least 2 commits to squash.'
-    );
+    vscode.window.showWarningMessage(t('squashNeedTwo'));
     return;
   }
 
@@ -70,29 +79,13 @@ async function execSquashCommits(item, commitInputProvider) {
   const defaultMsg = messages.join('\n');
 
   // 사이드바 메시지 입력창에 기존 메시지를 세팅하고 커밋 버튼 대기
-  const squashLabel = isKo ? '커밋 합치기' : 'Squash Commits';
-  vscode.window.showInformationMessage(
-    isKo
-      ? `${commits.length}개 커밋을 합칩니다. 메시지를 수정한 뒤 [${squashLabel}] 버튼을 누르세요.`
-      : `Squashing ${commits.length} commits. Edit the message and press [${squashLabel}].`
-  );
+  const squashLabel = t('squashLabel');
+  vscode.window.showInformationMessage(t('squashPrompt', commits.length, squashLabel));
   const userMsg = await commitInputProvider.waitForCommit(defaultMsg, squashLabel);
   if (!userMsg || !userMsg.trim()) return;
 
   // 커밋 시간 옵션
-  const timeLabel = isKo
-    ? ['원래 커밋 시간 유지', '현재 시간 사용']
-    : ['Keep original commit time', 'Use current time'];
-  const timeChoice = await vscode.window.showQuickPick(
-    [
-      { label: timeLabel[0], value: 'original' },
-      { label: timeLabel[1], value: 'now' },
-    ],
-    {
-      title: isKo ? '커밋 시간 선택' : 'Commit time',
-      placeHolder: isKo ? '합쳐진 커밋의 시간을 선택하세요' : 'Choose the time for the squashed commit',
-    }
-  );
+  const timeChoice = await pickCommitTime(t('squashPlaceholder'));
   if (!timeChoice) return;
 
   // unstaged 변경사항이 있으면 자동 stash
@@ -126,16 +119,9 @@ async function execSquashCommits(item, commitInputProvider) {
     await execGit(commitArgs, cwd, { env: { ...process.env, ...env } });
 
     commitInputProvider.addHistory(userMsg);
-    vscode.window.showInformationMessage(
-      isKo
-        ? `${commits.length}개 커밋이 합쳐졌습니다.`
-        : `${commits.length} commits squashed.`
-    );
+    vscode.window.showInformationMessage(t('squashDone', commits.length));
   } catch (err) {
-    const errMsg = formatGitError(err);
-    vscode.window.showErrorMessage(
-      isKo ? `커밋 합치기 실패: ${errMsg}` : `Squash failed: ${errMsg}`
-    );
+    vscode.window.showErrorMessage(t('squashFailed', formatGitError(err)));
   } finally {
     if (stashed) {
       try { await execGit(['stash', 'pop'], cwd); } catch { /* ignore */ }
@@ -153,11 +139,7 @@ async function execAmendMessage(item, commitInputProvider) {
   try {
     const { stdout } = await execGitSilent(['rev-parse', 'HEAD'], cwd);
     if (stdout.trim() !== hash) {
-      vscode.window.showWarningMessage(
-        isKo
-          ? '히스토리가 최신이 아닙니다. 새로고침 후 다시 시도하세요.'
-          : 'History is outdated. Please refresh and try again.'
-      );
+      vscode.window.showWarningMessage(t('amendOutdated'));
       return;
     }
   } catch { return; }
@@ -168,29 +150,13 @@ async function execAmendMessage(item, commitInputProvider) {
   );
 
   // 사이드바 메시지 입력창에 현재 메시지를 세팅하고 커밋 버튼 대기
-  const amendLabel = isKo ? '메시지 수정' : 'Amend Message';
-  vscode.window.showInformationMessage(
-    isKo
-      ? `커밋 메시지를 수정한 뒤 [${amendLabel}] 버튼을 누르세요.`
-      : `Edit the commit message and press [${amendLabel}].`
-  );
+  const amendLabel = t('amendLabel');
+  vscode.window.showInformationMessage(t('amendPrompt', amendLabel));
   const userMsg = await commitInputProvider.waitForCommit(currentMsg.trim(), amendLabel);
   if (!userMsg || !userMsg.trim()) return;
 
   // 커밋 시간 옵션
-  const timeLabel = isKo
-    ? ['원래 커밋 시간 유지', '현재 시간 사용']
-    : ['Keep original commit time', 'Use current time'];
-  const timeChoice = await vscode.window.showQuickPick(
-    [
-      { label: timeLabel[0], value: 'original' },
-      { label: timeLabel[1], value: 'now' },
-    ],
-    {
-      title: isKo ? '커밋 시간 선택' : 'Commit time',
-      placeHolder: isKo ? '수정된 커밋의 시간을 선택하세요' : 'Choose the time for the amended commit',
-    }
-  );
+  const timeChoice = await pickCommitTime(t('amendPlaceholder'));
   if (!timeChoice) return;
 
   try {
@@ -207,14 +173,9 @@ async function execAmendMessage(item, commitInputProvider) {
     await execGit(commitArgs, cwd, { env: { ...process.env, ...env } });
 
     commitInputProvider.addHistory(userMsg);
-    vscode.window.showInformationMessage(
-      isKo ? '커밋 메시지가 수정되었습니다.' : 'Commit message amended.'
-    );
+    vscode.window.showInformationMessage(t('amendDone'));
   } catch (err) {
-    const errMsg = formatGitError(err);
-    vscode.window.showErrorMessage(
-      isKo ? `메시지 수정 실패: ${errMsg}` : `Amend failed: ${errMsg}`
-    );
+    vscode.window.showErrorMessage(t('amendFailed', formatGitError(err)));
   }
 }
 
