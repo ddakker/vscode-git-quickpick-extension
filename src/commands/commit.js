@@ -109,8 +109,8 @@ async function execSquashCommits(item, commitInputProvider) {
     // soft reset으로 커밋 내용은 유지하면서 커밋 이력만 제거
     await execGit(['reset', '--soft', `${hash}~1`], cwd);
 
-    // 커밋 생성
-    const commitArgs = ['commit', '-m', userMsg];
+    // 커밋 생성 — 이미 커밋된 내용을 재조합하는 것이므로 훅은 건너뛴다
+    const commitArgs = ['commit', '-m', userMsg, '--no-verify'];
     const env = {};
     if (timeChoice.value === 'original') {
       env.GIT_AUTHOR_DATE = originalDate;
@@ -160,7 +160,8 @@ async function execAmendMessage(item, commitInputProvider) {
   if (!timeChoice) return;
 
   try {
-    const commitArgs = ['commit', '--amend', '-m', userMsg];
+    // 메시지만 수정하는 것이므로 훅은 건너뛴다
+    const commitArgs = ['commit', '--amend', '-m', userMsg, '--no-verify'];
     const env = {};
     if (timeChoice.value === 'original') {
       // amend는 기본적으로 author date를 유지하므로 추가 설정 불필요
