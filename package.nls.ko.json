@@ -30,6 +30,7 @@
   "command.history": "Git QuickPick: 히스토리",
   "command.execCommit": "체크된 파일 커밋",
   "command.execPush": "푸시",
+  "command.execLeasePush": "안전 강제 푸시",
   "command.execForcePush": "강제 푸시",
   "command.execForcePull": "강제 풀",
   "command.execPull": "풀",

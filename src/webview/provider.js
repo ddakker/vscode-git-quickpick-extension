@@ -92,8 +92,9 @@ function buildMenu() {
   ];
   const amend = { command: 'gitReflow.execAmendMessage', label: t('mAmend') };
   return {
-    // 히스토리 커밋: 복사 / squash / soft·hard reset (최신 커밋은 amend 만 활성, 나머지 비활성)
-    historyCommit: [...copy, squash, ...reset],
+    // 히스토리 커밋: 복사 / amend / squash / soft·hard reset
+    // (최신 커밋은 자기 자신을 대상으로 하는 squash·reset 이 의미가 없어 비활성)
+    historyCommit: [...copy, amend, squash, ...reset],
     historyCommitLatest: [...copy, amend, { ...squash, disabled: true }, ...reset.map(r => ({ ...r, disabled: true }))],
     // 브랜치 펼친 커밋: 복사 / 체리픽
     branchHistoryCommit: [...copy, { command: 'gitReflow.execCherryPick', label: t('mCherryPick') }],

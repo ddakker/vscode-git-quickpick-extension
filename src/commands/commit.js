@@ -6,6 +6,8 @@ const vscode = require('vscode');
 const { t } = require('../i18n');
 const { execGit, execGitSilent } = require('../git/exec');
 const { validateGitWorkspace } = require('../workspace');
+const { getCurrentBranch, isDetachedHead, hasInProgressOperation } = require('../git/queries');
+const { createRebaseBackupIfEnabled, isRebaseBackupEnabled } = require('../features/backup');
 const { showGitError } = require('./error');
 const { formatGitError } = require('../../lib/git-helpers');
 
@@ -129,24 +131,166 @@ async function execSquashCommits(item, commitInputProvider) {
   }
 }
 
+// HEAD 커밋의 메시지 수정 — 이후 커밋이 없으므로 --amend 로 끝난다.
+async function amendHeadMessage(cwd, message, useNow) {
+  // 메시지만 수정하는 것이므로 훅은 건너뛴다
+  const commitArgs = ['commit', '--amend', '-m', message, '--no-verify'];
+  const env = {};
+  // amend 는 기본적으로 author date 를 유지하므로 '원래 시간 유지'에는 추가 설정이 필요 없다.
+  if (useNow) {
+    const now = new Date().toISOString();
+    commitArgs.push('--date', now);
+    env.GIT_COMMITTER_DATE = now;
+  }
+  await execGit(commitArgs, cwd, { env: { ...process.env, ...env } });
+}
+
+// hash..HEAD 구간에 머지 커밋이 있는지 확인.
+// 머지 커밋을 rebase 로 옮기면 머지가 재수행되어, 원래 머지에서 수동으로 해결한 충돌 결과가
+// 재현되지 않는다(내용이 조용히 바뀔 수 있다). 그래서 이 경우는 아예 막는다.
+async function hasMergeCommitsAfter(cwd, hash) {
+  try {
+    const { stdout } = await execGitSilent(['rev-list', '--merges', `${hash}..HEAD`], cwd);
+    return stdout.trim() !== '';
+  } catch {
+    return false;
+  }
+}
+
+// hash..HEAD 구간의 커밋 개수 = 메시지 수정으로 해시가 재작성될 커밋 수.
+async function countCommitsAfter(cwd, hash) {
+  try {
+    const { stdout } = await execGitSilent(['rev-list', '--count', `${hash}..HEAD`], cwd);
+    return Number(stdout.trim()) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+// 커밋이 원격 브랜치에 이미 포함돼 있는지 확인.
+// 이미 push 된 커밋을 재작성하면 이후 push 가 거부되어 force push 가 필요해진다.
+async function isPushedCommit(cwd, hash) {
+  try {
+    const { stdout } = await execGitSilent(['branch', '-r', '--contains', hash], cwd);
+    return stdout.trim() !== '';
+  } catch {
+    return false;
+  }
+}
+
+// 과거 커밋(HEAD 아님)의 메시지 수정.
+// 파일 내용(tree)은 그대로 두고 메시지만 바꾼 새 커밋을 commit-tree 로 만든 뒤,
+// 그 위로 이후 커밋들을 rebase --onto 로 재적용한다.
+// 재적용 구간에 머지 커밋이 없음은 checkRewordable 에서 보장되므로(머지가 있으면 차단),
+// 각 커밋은 부모가 하나뿐인 단순 패치이고 tree 도 원본과 같아 충돌이 발생하지 않는다.
+async function rewordHistoryCommit(cwd, hash, message, useNow) {
+  // 원본 커밋의 tree / 부모 / author 정보 (author 는 그대로 보존해야 한다)
+  const { stdout: info } = await execGitSilent(
+    ['log', '-1', '--format=%T%n%P%n%an%n%ae%n%aI', hash], cwd
+  );
+  const [tree, parents, authorName, authorEmail, authorDate] = info.split('\n');
+
+  // 메시지만 바꾼 새 커밋 생성 — commit-tree 는 훅을 실행하지 않는다.
+  const treeArgs = ['commit-tree', tree.trim()];
+  for (const parent of parents.trim().split(/\s+/).filter(Boolean)) {
+    treeArgs.push('-p', parent);
+  }
+  treeArgs.push('-m', message);
+
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: authorName,
+    GIT_AUTHOR_EMAIL: authorEmail,
+    GIT_AUTHOR_DATE: useNow ? new Date().toISOString() : authorDate,
+  };
+  const { stdout: newHashOut } = await execGit(treeArgs, cwd, { env });
+  const newHash = newHashOut.trim();
+
+  // 이후 커밋들을 새 커밋 위로 옮긴다. 실패하면 rebase 를 중단해 원래 상태로 되돌린다.
+  try {
+    await execGit(['rebase', '--autostash', '--onto', newHash, hash], cwd);
+  } catch (err) {
+    try {
+      await execGitSilent(['rebase', '--abort'], cwd);
+    } catch {
+      // abort 까지 실패하면 저장소가 rebase 진행 중 상태로 남는다.
+      // 사용자가 스스로 복구할 수 있도록 백업 브랜치 이름과 함께 상황을 알린다.
+      vscode.window.showErrorMessage(t('rewordAbortFailed'));
+    }
+    throw err;
+  }
+}
+
+// 과거 커밋 메시지를 수정할 수 있는 상태인지 확인. 불가하면 사유 메시지를, 가능하면 null 을 반환.
+async function checkRewordable(cwd, hash) {
+  if (await isDetachedHead(cwd)) return t('rewordDetached');
+  if (await hasInProgressOperation(cwd)) return t('rewordInProgress');
+
+  // 현재 브랜치의 조상이 아닌 커밋(다른 브랜치의 커밋)은 재작성 대상이 아니다.
+  try {
+    await execGitSilent(['merge-base', '--is-ancestor', hash, 'HEAD'], cwd);
+  } catch {
+    return t('rewordNotOnBranch');
+  }
+
+  // 이후 구간에 머지 커밋이 있으면 재적용 과정에서 머지가 재수행되어 내용이 바뀔 수 있다.
+  if (await hasMergeCommitsAfter(cwd, hash)) return t('rewordHasMerge');
+
+  return null;
+}
+
+// 히스토리 재작성 전 확인 모달. 진행하면 true.
+// 재작성될 커밋 수와 백업 브랜치 생성 여부를 알리고, 이미 push 된 커밋이면 경고를 덧붙인다.
+async function confirmReword(cwd, hash) {
+  const rewritten = await countCommitsAfter(cwd, hash);
+
+  const notes = [t('rewordDetail', rewritten)];
+  if (isRebaseBackupEnabled()) notes.push(t('rewordBackupNote'));
+  if (await isPushedCommit(cwd, hash)) notes.push(t('rewordPushedWarn'));
+
+  const proceed = t('yes');
+  const answer = await vscode.window.showWarningMessage(
+    t('confirmReword', hash.substring(0, 8)),
+    { modal: true, detail: notes.join('\n\n') },
+    proceed
+  );
+  return answer === proceed;
+}
+
 async function execAmendMessage(item, commitInputProvider) {
   const cwd = await validateGitWorkspace();
   if (!cwd) return;
 
   const hash = item.commitHash;
 
-  // 선택된 커밋이 실제 HEAD인지 확인 (히스토리가 오래된 경우 방어)
+  // HEAD 커밋이면 --amend 로 충분하고, 과거 커밋이면 이후 커밋들까지 재작성해야 한다.
+  let headSha;
   try {
     const { stdout } = await execGitSilent(['rev-parse', 'HEAD'], cwd);
-    if (stdout.trim() !== hash) {
-      vscode.window.showWarningMessage(t('amendOutdated'));
+    headSha = stdout.trim();
+  } catch { return; }
+  const isHead = headSha === hash;
+
+  // 사이드바가 최신 커밋이라고 표시한 항목인데 실제 HEAD 가 아니면 목록이 낡은 것이다.
+  // (다른 도구로 커밋한 뒤 새로고침하지 않은 경우) — 재작성 대신 새로고침을 안내한다.
+  if (item.contextValue === 'historyCommitLatest' && !isHead) {
+    vscode.window.showWarningMessage(t('amendOutdated'));
+    return;
+  }
+
+  if (!isHead) {
+    const blocked = await checkRewordable(cwd, hash);
+    if (blocked) {
+      vscode.window.showWarningMessage(blocked);
       return;
     }
-  } catch { return; }
+    // 히스토리 재작성은 되돌리기 어려우므로 rebase/reset 과 동일하게 모달로 확인받는다.
+    if (!await confirmReword(cwd, hash)) return;
+  }
 
   // 현재 커밋 메시지 조회
   const { stdout: currentMsg } = await execGitSilent(
-    ['log', '-1', '--format=%B', 'HEAD'], cwd
+    ['log', '-1', '--format=%B', hash], cwd
   );
 
   // 사이드바 메시지 입력창에 현재 메시지를 세팅하고 커밋 버튼 대기
@@ -158,20 +302,16 @@ async function execAmendMessage(item, commitInputProvider) {
   // 커밋 시간 옵션
   const timeChoice = await pickCommitTime(t('amendPlaceholder'));
   if (!timeChoice) return;
+  const useNow = timeChoice.value === 'now';
 
   try {
-    // 메시지만 수정하는 것이므로 훅은 건너뛴다
-    const commitArgs = ['commit', '--amend', '-m', userMsg, '--no-verify'];
-    const env = {};
-    if (timeChoice.value === 'original') {
-      // amend는 기본적으로 author date를 유지하므로 추가 설정 불필요
+    if (isHead) {
+      await amendHeadMessage(cwd, userMsg, useNow);
     } else {
-      // --date 옵션으로 author date를 현재 시간으로 변경
-      const now = new Date().toISOString();
-      commitArgs.push('--date', now);
-      env.GIT_COMMITTER_DATE = now;
+      // 히스토리를 재작성하므로 되돌릴 수 있도록 백업 브랜치를 먼저 만든다.
+      await createRebaseBackupIfEnabled(cwd, await getCurrentBranch(cwd));
+      await rewordHistoryCommit(cwd, hash, userMsg, useNow);
     }
-    await execGit(commitArgs, cwd, { env: { ...process.env, ...env } });
 
     commitInputProvider.addHistory(userMsg);
     vscode.window.showInformationMessage(t('amendDone'));

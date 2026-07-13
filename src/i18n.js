@@ -78,6 +78,10 @@ const messages = {
     '동일한 커밋의 백업 브랜치가 이미 있어 재사용합니다: {0}',
     'Reusing existing backup branch at the same commit: {0}'
   ],
+  backupPruned: [
+    '오래된 백업 브랜치 {0}개를 자동 정리했습니다.',
+    'Automatically pruned {0} old backup branch(es).'
+  ],
   cleanupBackupsNone: [
     '정리할 오래된 백업 브랜치가 없습니다.',
     'No old backup branches to clean up.'
@@ -160,8 +164,21 @@ const messages = {
   // ─── Push ──────────────────────────────────────────────
   push:               ['Push', 'Push'],
   pushForce:          ['Force Push', 'Force Push'],
+  pushLease:          ['안전 강제 푸시', 'Force Push (with lease)'],
+  pushLeaseHint:      [
+    '원격이 그대로일 때만 덮어씀',
+    'Overwrites only if the remote is unchanged'
+  ],
   pushSuccess:        ['{0} 브랜치 푸시 완료', 'Pushed branch {0}'],
   forcePushConfirm:   ['{0} 브랜치를 Force Push합니까? 원격 히스토리가 덮어씌워집니다.', 'Force push {0}? This will overwrite remote history.'],
+  leasePushConfirm:   [
+    '{0} 브랜치를 안전 강제 푸시합니까?\n\n' +
+    '원격이 마지막으로 받아둔 상태 그대로일 때만 덮어씁니다. ' +
+    '다른 사람이 그 사이에 푸시했다면 거부되므로, 남의 커밋을 지울 위험이 없습니다.',
+    'Force push {0} with lease?\n\n' +
+    'Overwrites the remote only if it still matches what you last fetched. ' +
+    'If someone else pushed in the meantime it is rejected, so no one else\'s commits are lost.'
+  ],
   forcePullConfirm:   ['{0} 브랜치를 Force Pull합니까? 로컬 변경사항과 커밋이 원격 내용으로 덮어써집니다.', 'Force pull {0}? Local changes and commits will be overwritten by the remote.'],
   detachedHeadPush:   ['Detached HEAD 상태입니다. push를 실행할 수 없습니다.', 'Cannot push in detached HEAD state.'],
   checkingRemote:     ['원격 변경사항 확인 중...', 'Checking remote changes...'],
@@ -319,6 +336,49 @@ const messages = {
   amendPlaceholder:   ['수정된 커밋의 시간을 선택하세요', 'Choose the time for the amended commit'],
   amendDone:          ['커밋 메시지가 수정되었습니다.', 'Commit message amended.'],
   amendFailed:        ['메시지 수정 실패: {0}', 'Amend failed: {0}'],
+  // ─── 과거 커밋 메시지 수정 (reword) ─────────────────────
+  confirmReword:      [
+    '과거 커밋 {0} 의 메시지를 수정합니다. 계속할까요?',
+    'Edit the message of older commit {0}. Continue?'
+  ],
+  rewordDetail:       [
+    '이 커밋 이후의 커밋 {0}개는 내용은 그대로지만 해시가 새로 만들어집니다.',
+    'The {0} commit(s) after it keep their content but get new hashes.'
+  ],
+  rewordBackupNote:   [
+    '시작 전에 복구용 백업 브랜치(backup/...)가 자동으로 만들어집니다.',
+    'A backup branch (backup/...) will be created before starting.'
+  ],
+  rewordPushedWarn:   [
+    '⚠ 이 커밋은 이미 원격에 올라가 있어, 다른 사람이 받아갔을 수 있습니다. ' +
+    '수정 후에는 [안전 강제 푸시]로 올리세요.',
+    '⚠ This commit is already on the remote, so others may have pulled it. ' +
+    'After editing, push it with [Force Push (with lease)].'
+  ],
+  rewordHasMerge:     [
+    '이 커밋 이후에 머지 커밋이 있어 메시지를 수정할 수 없습니다. ' +
+    '(머지를 다시 수행하면 과거에 해결한 충돌 결과가 바뀔 수 있습니다)',
+    'Cannot edit: there is a merge commit after this one. '
+    + '(Redoing the merge could change previously resolved conflicts.)'
+  ],
+  rewordAbortFailed:  [
+    'rebase 중단(--abort)까지 실패했습니다. 저장소가 rebase 진행 중 상태로 남아 있습니다. ' +
+    '터미널에서 `git rebase --abort` 를 실행하거나 backup/... 브랜치로 복구하세요.',
+    'Failed to abort the rebase. The repository is left mid-rebase. ' +
+    'Run `git rebase --abort` in a terminal, or restore from the backup/... branch.'
+  ],
+  rewordDetached:     [
+    'detached HEAD 상태에서는 과거 커밋 메시지를 수정할 수 없습니다. 브랜치로 전환하세요.',
+    'Cannot edit an older commit message in detached HEAD. Switch to a branch first.'
+  ],
+  rewordInProgress:   [
+    '진행 중인 rebase/merge 작업이 있어 과거 커밋 메시지를 수정할 수 없습니다.',
+    'Cannot edit an older commit message while a rebase/merge is in progress.'
+  ],
+  rewordNotOnBranch:  [
+    '현재 브랜치에 포함된 커밋이 아니어서 메시지를 수정할 수 없습니다.',
+    'This commit is not on the current branch, so its message cannot be edited.'
+  ],
   commitTimeTitle:    ['커밋 시간 선택', 'Commit time'],
   commitTimeKeep:     ['원래 커밋 시간 유지', 'Keep original commit time'],
   commitTimeNow:      ['현재 시간 사용', 'Use current time'],

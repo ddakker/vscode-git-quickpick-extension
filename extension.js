@@ -651,8 +651,9 @@ function activate(context) {
     'gitReflow.addToGitignore': withRefresh((item) => execAddToGitignore(item)),
     'gitReflow.addForce': withRefresh((uri, uris) => execForceAdd(uri, uris)),
     // 타이틀 바 명령
-    'gitReflow.execPush': withRefresh(() => execPush(false)),
-    'gitReflow.execForcePush': withRefresh(() => execPush(true)),
+    'gitReflow.execPush': withRefresh(() => execPush('normal')),
+    'gitReflow.execLeasePush': withRefresh(() => execPush('lease')),
+    'gitReflow.execForcePush': withRefresh(() => execPush('force')),
     'gitReflow.execForcePull': withRefresh(() => execForcePull()),
     'gitReflow.execPull': withRefresh(() => execPull()),
     'gitReflow.refreshView': async () => {

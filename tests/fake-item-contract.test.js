@@ -59,10 +59,10 @@ describe('메뉴 계약 (master 트리 메뉴와 동일 구성)', () => {
   const menu = buildMenu();
   const cmds = (ctx) => menu[ctx].map(m => m.command);
 
-  test('historyCommit: 복사 / squash / soft·hard reset', () => {
+  test('historyCommit: 복사 / amend / squash / soft·hard reset', () => {
     assert.deepEqual(cmds('historyCommit'), [
-      'gitReflow.copyHash', 'gitReflow.copyMessage', 'gitReflow.execInteractiveRebase',
-      'gitReflow.execSoftReset', 'gitReflow.execHardReset',
+      'gitReflow.copyHash', 'gitReflow.copyMessage', 'gitReflow.execAmendMessage',
+      'gitReflow.execInteractiveRebase', 'gitReflow.execSoftReset', 'gitReflow.execHardReset',
     ]);
   });
   test('historyCommitLatest: amend 가 squash 앞에 추가', () => {

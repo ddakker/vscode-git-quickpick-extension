@@ -189,6 +189,11 @@
         "icon": "$(cloud-upload)"
       },
       {
+        "command": "gitReflow.execLeasePush",
+        "title": "%command.execLeasePush%",
+        "icon": "$(shield)"
+      },
+      {
         "command": "gitReflow.execForcePush",
         "title": "%command.execForcePush%",
         "icon": "$(warning)"
@@ -425,14 +430,19 @@
           "group": "navigation@8"
         },
         {
-          "command": "gitReflow.execForcePush",
+          "command": "gitReflow.execLeasePush",
           "when": "view == gitQuickPickHistory",
           "group": "1_push@1"
         },
         {
-          "command": "gitReflow.execForcePull",
+          "command": "gitReflow.execForcePush",
           "when": "view == gitQuickPickHistory",
           "group": "1_push@2"
+        },
+        {
+          "command": "gitReflow.execForcePull",
+          "when": "view == gitQuickPickHistory",
+          "group": "1_push@3"
         },
         {
           "command": "gitReflow.cleanupBackups",

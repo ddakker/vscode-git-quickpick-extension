@@ -14,7 +14,7 @@ const {
 const { showBranchPicker, showActionPicker, showPullActionPicker, showCommitPicker } = require('../ui/pickers');
 const { createRebaseBackupIfEnabled, rebaseBackupNote } = require('../features/backup');
 const { handleGitError } = require('./error');
-const { performPush } = require('./push-pull');
+const { performPush, confirmPushMode } = require('./push-pull');
 const { copyShortHash, copyCommitMessage } = require('./diff');
 
 async function rebaseMerge(remote) {
@@ -157,21 +157,17 @@ async function pushBranch() {
   const currentBranch = await getCurrentBranch(cwd);
 
   const pushItems = [
-    { label: `$(cloud-upload) ${t('push')}`, value: 'push' },
+    { label: `$(cloud-upload) ${t('push')}`, value: 'normal' },
+    { label: `$(shield) ${t('pushLease')}`, description: t('pushLeaseHint'), value: 'lease' },
     { label: `$(warning) ${t('pushForce')}`, value: 'force' },
   ];
   const pushAction = await vscode.window.showQuickPick(pushItems, { placeHolder: t('selectAction') });
   if (!pushAction) return;
 
-  const force = pushAction.value === 'force';
-  if (force) {
-    const confirm = await vscode.window.showWarningMessage(
-      t('forcePushConfirm', currentBranch), { modal: true }, t('yes')
-    );
-    if (confirm !== t('yes')) return;
-  }
+  const mode = pushAction.value;
+  if (!await confirmPushMode(mode, currentBranch)) return;
 
-  await performPush(cwd, currentBranch, force);
+  await performPush(cwd, currentBranch, mode);
 }
 
 async function commitChanges() {

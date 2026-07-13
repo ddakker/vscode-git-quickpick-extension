@@ -30,6 +30,7 @@
   "command.history": "Git QuickPick: History",
   "command.execCommit": "Commit checked files",
   "command.execPush": "Push",
+  "command.execLeasePush": "Force Push (with lease)",
   "command.execForcePush": "Force Push",
   "command.execForcePull": "Force Pull",
   "command.execPull": "Pull",

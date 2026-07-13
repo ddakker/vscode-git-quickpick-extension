@@ -10,7 +10,25 @@ const { getCurrentBranch, isDetachedHead, hasInProgressOperation } = require('..
 const { createRebaseBackupIfEnabled, rebaseBackupNote } = require('../features/backup');
 const { handleGitError } = require('./error');
 
-async function execPush(force) {
+// push 모드
+//   normal — 일반 push. 원격에 새 커밋이 있으면 rebase 선택지를 먼저 제공한다.
+//   lease  — --force-with-lease. 원격이 내가 마지막으로 받아둔 상태 그대로일 때만 덮어쓴다.
+//            그 사이 다른 사람이 push 했다면 거부되므로, 재작성한 히스토리를 올릴 때 안전하다.
+//   force  — --force. 원격 상태와 관계없이 무조건 덮어쓴다.
+const PUSH_FLAG = { lease: '--force-with-lease', force: '--force' };
+const PUSH_CONFIRM = { lease: 'leasePushConfirm', force: 'forcePushConfirm' };
+
+// 원격을 덮어쓰는 push(lease/force)는 모달로 확인받는다. 진행해도 되면 true.
+async function confirmPushMode(mode, currentBranch) {
+  const key = PUSH_CONFIRM[mode];
+  if (!key) return true;   // normal 은 확인 불필요
+  const answer = await vscode.window.showWarningMessage(
+    t(key, currentBranch), { modal: true }, t('yes')
+  );
+  return answer === t('yes');
+}
+
+async function execPush(mode = 'normal') {
   const cwd = await validateGitWorkspace();
   if (!cwd) return;
 
@@ -21,18 +39,12 @@ async function execPush(force) {
 
   const currentBranch = await getCurrentBranch(cwd);
 
-  if (force) {
-    const confirm = await vscode.window.showWarningMessage(
-      t('forcePushConfirm', currentBranch),
-      { modal: true }, t('yes')
-    );
-    if (confirm !== t('yes')) return;
-  }
+  if (!await confirmPushMode(mode, currentBranch)) return;
 
-  await performPush(cwd, currentBranch, force);
+  await performPush(cwd, currentBranch, mode);
 }
 
-async function performPush(cwd, currentBranch, force) {
+async function performPush(cwd, currentBranch, mode = 'normal') {
   let hasUpstream = true;
   try {
     await execGitSilent(['rev-parse', '--abbrev-ref', `${currentBranch}@{upstream}`], cwd);
@@ -40,8 +52,10 @@ async function performPush(cwd, currentBranch, force) {
     hasUpstream = false;
   }
 
-  // 일반 push이고 upstream이 있으면, 원격에 로컬에 없는 커밋이 있는지 확인 후 rebase 선택지 제공
-  if (!force && hasUpstream) {
+  // 일반 push이고 upstream이 있으면, 원격에 로컬에 없는 커밋이 있는지 확인 후 rebase 선택지 제공.
+  // lease/force 에서는 fetch 하지 않는다 — fetch 로 remote-tracking 을 갱신해 버리면
+  // --force-with-lease 의 비교 기준이 최신화되어 보호 장치가 무력해진다.
+  if (mode === 'normal' && hasUpstream) {
     const decision = await checkRemoteBeforePush(cwd, currentBranch);
     if (decision === 'cancel') return;       // 사용자가 취소
     if (decision === 'rebase-only') return;  // rebase만 하고 push 안 함
@@ -49,7 +63,7 @@ async function performPush(cwd, currentBranch, force) {
   }
 
   const pushArgs = ['push'];
-  if (force) pushArgs.push('--force');
+  if (PUSH_FLAG[mode]) pushArgs.push(PUSH_FLAG[mode]);
   if (!hasUpstream) pushArgs.push('--set-upstream', 'origin', currentBranch);
 
   try {
@@ -244,5 +258,6 @@ async function execForceBranchPull(item) {
 }
 
 module.exports = {
-  execPush, performPush, execPull, execForcePull, execBranchPull, execForceBranchPull,
+  execPush, performPush, confirmPushMode,
+  execPull, execForcePull, execBranchPull, execForceBranchPull,
 };
