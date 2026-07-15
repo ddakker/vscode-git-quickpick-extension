@@ -138,6 +138,45 @@ async function rebaseOntoUpstream(cwd, currentBranch) {
   }
 }
 
+// 로컬과 원격이 갈라졌는지 확인 — 양쪽 모두 상대에게 없는 커밋을 가진 상태.
+// 여기서 fetch 는 하지 않는다. 히스토리를 재작성하면 로컬 커밋이 새 해시로 바뀌는 반면
+// remote-tracking 은 옛 해시를 그대로 가리키므로, 그 자체로 즉시 갈라진 상태가 된다.
+async function getDivergence(cwd) {
+  try {
+    const { stdout } = await execGitSilent(
+      ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], cwd
+    );
+    const [ahead, behind] = stdout.trim().split(/\s+/).map(n => parseInt(n, 10) || 0);
+    return { ahead, behind };
+  } catch {
+    return { ahead: 0, behind: 0 };   // upstream 이 없으면 판단 불가 → 평소대로 진행
+  }
+}
+
+// 갈라진 상태에서 pull(merge) 하면 재작성 전의 옛 커밋이 원격에서 다시 들어와
+// 같은 작업이 두 벌 들어간 히스토리가 만들어진다. 그대로 두면 에러 없이 조용히 벌어지므로
+// pull 전에 막고, 이 상황에서 사용자가 정말 하려던 일(안전 강제 푸시)을 바로 제안한다.
+// 계속 pull 해도 되면 true.
+async function confirmPullWhenDiverged(cwd, currentBranch) {
+  const { ahead, behind } = await getDivergence(cwd);
+  if (ahead === 0 || behind === 0) return true;   // 갈라지지 않음 → 평범한 pull
+
+  const leaseLabel = t('pushLease');
+  const pullAnyway = t('pullAnyway');
+  const choice = await vscode.window.showWarningMessage(
+    t('divergedPullWarn', ahead, behind),
+    { modal: true, detail: t('divergedPullDetail') },
+    leaseLabel, pullAnyway
+  );
+
+  if (choice === leaseLabel) {
+    if (!await confirmPushMode('lease', currentBranch)) return false;
+    await performPush(cwd, currentBranch, 'lease');
+    return false;   // push 했으므로 pull 은 하지 않는다
+  }
+  return choice === pullAnyway;
+}
+
 async function execPull() {
   const cwd = await validateGitWorkspace();
   if (!cwd) return;
@@ -148,6 +187,9 @@ async function execPull() {
   }
 
   const currentBranch = await getCurrentBranch(cwd);
+
+  if (!await confirmPullWhenDiverged(cwd, currentBranch)) return;
+
   try {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: t('executing', 'git pull') },

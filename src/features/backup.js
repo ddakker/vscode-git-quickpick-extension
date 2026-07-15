@@ -29,14 +29,15 @@ function rebaseBackupNote(action) {
 
 // rebase 직전 복구용 백업 브랜치 생성. 설정이 꺼져 있으면 아무것도 안 함.
 // 백업 실패는 rebase를 막지 않고 경고만 표시 (git ORIG_HEAD 가 fallback).
+// 반환: 이번에 새로 만든 백업 브랜치 이름 (재사용·생략·실패 시 null).
 async function createRebaseBackupIfEnabled(cwd, currentBranch) {
-  if (!isRebaseBackupEnabled()) return;
+  if (!isRebaseBackupEnabled()) return null;
 
   // 현재 HEAD 커밋을 이미 가리키는 백업이 있으면 중복 생성하지 않고 재사용
   const existing = await findBackupAtHead(cwd, currentBranch);
   if (existing) {
     vscode.window.showInformationMessage(t('backupReused', existing));
-    return;
+    return null;
   }
 
   const backupName = buildRebaseBackupName(currentBranch);
@@ -46,11 +47,12 @@ async function createRebaseBackupIfEnabled(cwd, currentBranch) {
   } catch (err) {
     const msg = (err.stderr || err.message || String(err)).trim();
     vscode.window.showWarningMessage(t('backupFailed', msg));
-    return;
+    return null;
   }
 
   // 방금 만든 백업 때문에 이 브랜치의 백업이 backupMaxKeep 을 넘었다면 초과분만 정리한다.
   await pruneStaleBackups(cwd, currentBranch);
+  return backupName;
 }
 
 // 수동 정리(execCleanupBackups) 대상 — 모든 브랜치의 백업을 개수/기간 두 기준으로 검사한다.
@@ -168,5 +170,6 @@ module.exports = {
   findBackupAtHead,
   listBackupBranches,
   pruneStaleBackups,
+  deleteBackupBranches,
   execCleanupBackups,
 };

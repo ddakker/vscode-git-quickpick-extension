@@ -135,8 +135,11 @@ function execGitSilent(args, cwd, options = {}) {
 
 // 사용자 명령용 (출력 로그에 기록 + 자동 표시)
 // options._silent: true → outputChannel 로그/표시 생략 (백그라운드 조회용, auth retry는 유지)
+// options.env 는 buildGitEnv() 를 대체하지 않고 그 위에 얹힌다.
+// (통째로 덮어쓰면 GIT_TERMINAL_PROMPT=0, GIT_ASKPASS 해제, core.quotepath=false 같은
+//  공통 안전장치가 벗겨진다. 호출부는 바꿀 변수만 넘기면 된다.)
 async function execGit(args, cwd, options = {}) {
-  const { _noAuthRetry, _silent, ...execOptions } = options;
+  const { _noAuthRetry, _silent, env: envOverride, ...execOptions } = options;
   const outputChannel = runtime.getOutputChannel();
   const cmdStr = `git ${args.join(' ')}`;
   if (outputChannel && !_silent) {
@@ -150,8 +153,8 @@ async function execGit(args, cwd, options = {}) {
     const result = await execFileAsync('git', args, {
       cwd,
       maxBuffer: 1024 * 1024,
-      env: buildGitEnv(),
       ...execOptions,
+      env: { ...buildGitEnv(), ...envOverride },
     });
     if (outputChannel && !_silent && result.stdout) {
       const lines = result.stdout.trimEnd().split('\n').filter(l => l.trim());
@@ -165,7 +168,7 @@ async function execGit(args, cwd, options = {}) {
     // 인증 에러면 credential 프롬프트 + 1회 재시도
     if (!_noAuthRetry && isAuthError(err)) {
       try {
-        return await retryWithCredentials(args, cwd, { ...execOptions, _silent }, err);
+        return await retryWithCredentials(args, cwd, { ...execOptions, env: envOverride, _silent }, err);
       } catch (retryErr) {
         if (outputChannel && !_silent) {
           const errMsg = (retryErr.stderr || '') + (retryErr.stdout || '')

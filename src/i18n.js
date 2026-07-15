@@ -170,6 +170,21 @@ const messages = {
     'Overwrites only if the remote is unchanged'
   ],
   pushSuccess:        ['{0} 브랜치 푸시 완료', 'Pushed branch {0}'],
+  pullAnyway:         ['그래도 Pull', 'Pull anyway'],
+  divergedPullWarn:   [
+    '로컬과 원격의 히스토리가 갈라져 있습니다.\n(로컬에만 있는 커밋 {0}개 / 원격에만 있는 커밋 {1}개)',
+    'Local and remote histories have diverged.\n({0} commit(s) only local / {1} commit(s) only on remote)'
+  ],
+  divergedPullDetail: [
+    '커밋 메시지 수정, rebase, squash 등으로 히스토리를 다시 쓰면 이 상태가 됩니다.\n\n' +
+    '지금 Pull 하면 원격에 남아 있는 예전 커밋이 다시 들어와, ' +
+    '같은 작업이 두 벌 들어간 히스토리가 만들어집니다.\n\n' +
+    '히스토리를 다시 쓴 것이 맞다면 Pull 이 아니라 [안전 강제 푸시]로 올리세요.',
+    'Rewriting history (editing a commit message, rebase, squash, …) leaves the branch in this state.\n\n' +
+    'Pulling now brings the old commits back from the remote, ' +
+    'leaving you with the same work twice in your history.\n\n' +
+    'If you did rewrite history, push with [Force Push (with lease)] instead of pulling.'
+  ],
   forcePushConfirm:   ['{0} 브랜치를 Force Push합니까? 원격 히스토리가 덮어씌워집니다.', 'Force push {0}? This will overwrite remote history.'],
   leasePushConfirm:   [
     '{0} 브랜치를 안전 강제 푸시합니까?\n\n' +
@@ -354,6 +369,12 @@ const messages = {
     '수정 후에는 [안전 강제 푸시]로 올리세요.',
     '⚠ This commit is already on the remote, so others may have pulled it. ' +
     'After editing, push it with [Force Push (with lease)].'
+  ],
+  rewordPreRebaseHook: [
+    'ℹ 이 저장소에는 pre-rebase 훅이 있습니다. 훅이 거부하면 메시지는 수정되지 않고 중단됩니다 ' +
+    '(저장소는 그대로 유지됩니다).',
+    'ℹ This repository has a pre-rebase hook. If it rejects the rebase, the message is left ' +
+    'unchanged and nothing is modified.'
   ],
   rewordHasMerge:     [
     '이 커밋 이후에 머지 커밋이 있어 메시지를 수정할 수 없습니다. ' +

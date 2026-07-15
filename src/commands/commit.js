@@ -2,12 +2,16 @@
 
 // 커밋 명령 — 사이드바 커밋 / squash / amend (커밋 입력 뷰 인스턴스를 주입받음).
 
+const fs = require('fs');
+const path = require('path');
 const vscode = require('vscode');
 const { t } = require('../i18n');
 const { execGit, execGitSilent } = require('../git/exec');
 const { validateGitWorkspace } = require('../workspace');
 const { getCurrentBranch, isDetachedHead, hasInProgressOperation } = require('../git/queries');
-const { createRebaseBackupIfEnabled, isRebaseBackupEnabled } = require('../features/backup');
+const {
+  createRebaseBackupIfEnabled, isRebaseBackupEnabled, deleteBackupBranches,
+} = require('../features/backup');
 const { showGitError } = require('./error');
 const { formatGitError } = require('../../lib/git-helpers');
 
@@ -118,7 +122,7 @@ async function execSquashCommits(item, commitInputProvider) {
       env.GIT_AUTHOR_DATE = originalDate;
       env.GIT_COMMITTER_DATE = originalDate;
     }
-    await execGit(commitArgs, cwd, { env: { ...process.env, ...env } });
+    await execGit(commitArgs, cwd, { env });
 
     commitInputProvider.addHistory(userMsg);
     vscode.window.showInformationMessage(t('squashDone', commits.length));
@@ -142,7 +146,7 @@ async function amendHeadMessage(cwd, message, useNow) {
     commitArgs.push('--date', now);
     env.GIT_COMMITTER_DATE = now;
   }
-  await execGit(commitArgs, cwd, { env: { ...process.env, ...env } });
+  await execGit(commitArgs, cwd, { env });
 }
 
 // hash..HEAD 구간에 머지 커밋이 있는지 확인.
@@ -164,6 +168,33 @@ async function countCommitsAfter(cwd, hash) {
     return Number(stdout.trim()) || 0;
   } catch {
     return 0;
+  }
+}
+
+// 저장소가 커밋 서명(commit.gpgsign)을 쓰는지 확인.
+// commit --amend 는 이 설정을 알아서 따르지만, 저수준 명령인 commit-tree 는 따르지 않는다.
+// 그래서 reword 에서는 직접 확인해 -S 를 붙여야 서명이 사라지지 않는다.
+async function isGpgSignEnabled(cwd) {
+  try {
+    const { stdout } = await execGitSilent(['config', '--get', 'commit.gpgsign'], cwd);
+    return stdout.trim() === 'true';
+  } catch {
+    return false;   // 설정이 없으면 서명하지 않는 저장소다
+  }
+}
+
+// pre-rebase 훅이 설치돼 있는지 확인.
+// 이 훅은 rebase 를 막으려고 두는 것이므로(예: 이미 push 된 브랜치의 rebase 금지),
+// 우회하지 않고 그대로 존중한다. 다만 거부당하면 메시지를 다 입력한 뒤에야 실패하므로,
+// 훅이 있으면 시작 전에 미리 알려 헛수고를 줄인다.
+// git 의 거부 메시지는 로케일에 따라 번역되므로 stderr 문자열로 판별하지 않고 훅 존재로 판단한다.
+async function hasPreRebaseHook(cwd) {
+  try {
+    // core.hooksPath 로 훅 경로를 바꾼 저장소도 있으므로 git 에게 직접 물어본다.
+    const { stdout } = await execGitSilent(['rev-parse', '--git-path', 'hooks/pre-rebase'], cwd);
+    return fs.existsSync(path.resolve(cwd, stdout.trim()));
+  } catch {
+    return false;
   }
 }
 
@@ -190,15 +221,20 @@ async function rewordHistoryCommit(cwd, hash, message, useNow) {
   );
   const [tree, parents, authorName, authorEmail, authorDate] = info.split('\n');
 
+  // 서명을 쓰는 저장소인지 — 저수준 명령인 commit-tree 는 commit.gpgsign 을 무시하므로
+  // -S 를 직접 붙여야 이 커밋만 서명이 빠지는 일이 없다.
+  // (rebase 는 commit.gpgsign 을 따르지만, 의도를 드러내려고 여기서도 -S 를 명시한다)
+  const sign = await isGpgSignEnabled(cwd);
+
   // 메시지만 바꾼 새 커밋 생성 — commit-tree 는 훅을 실행하지 않는다.
   const treeArgs = ['commit-tree', tree.trim()];
   for (const parent of parents.trim().split(/\s+/).filter(Boolean)) {
     treeArgs.push('-p', parent);
   }
+  if (sign) treeArgs.push('-S');
   treeArgs.push('-m', message);
 
   const env = {
-    ...process.env,
     GIT_AUTHOR_NAME: authorName,
     GIT_AUTHOR_EMAIL: authorEmail,
     GIT_AUTHOR_DATE: useNow ? new Date().toISOString() : authorDate,
@@ -207,8 +243,11 @@ async function rewordHistoryCommit(cwd, hash, message, useNow) {
   const newHash = newHashOut.trim();
 
   // 이후 커밋들을 새 커밋 위로 옮긴다. 실패하면 rebase 를 중단해 원래 상태로 되돌린다.
+  const rebaseArgs = ['rebase', '--autostash'];
+  if (sign) rebaseArgs.push('-S');
+  rebaseArgs.push('--onto', newHash, hash);
   try {
-    await execGit(['rebase', '--autostash', '--onto', newHash, hash], cwd);
+    await execGit(rebaseArgs, cwd);
   } catch (err) {
     try {
       await execGitSilent(['rebase', '--abort'], cwd);
@@ -247,6 +286,7 @@ async function confirmReword(cwd, hash) {
   const notes = [t('rewordDetail', rewritten)];
   if (isRebaseBackupEnabled()) notes.push(t('rewordBackupNote'));
   if (await isPushedCommit(cwd, hash)) notes.push(t('rewordPushedWarn'));
+  if (await hasPreRebaseHook(cwd)) notes.push(t('rewordPreRebaseHook'));
 
   const proceed = t('yes');
   const answer = await vscode.window.showWarningMessage(
@@ -304,20 +344,38 @@ async function execAmendMessage(item, commitInputProvider) {
   if (!timeChoice) return;
   const useNow = timeChoice.value === 'now';
 
+  let backupName = null;
   try {
     if (isHead) {
       await amendHeadMessage(cwd, userMsg, useNow);
     } else {
       // 히스토리를 재작성하므로 되돌릴 수 있도록 백업 브랜치를 먼저 만든다.
-      await createRebaseBackupIfEnabled(cwd, await getCurrentBranch(cwd));
+      backupName = await createRebaseBackupIfEnabled(cwd, await getCurrentBranch(cwd));
       await rewordHistoryCommit(cwd, hash, userMsg, useNow);
     }
 
     commitInputProvider.addHistory(userMsg);
     vscode.window.showInformationMessage(t('amendDone'));
   } catch (err) {
+    // pre-rebase 훅 거부처럼 아무것도 바뀌지 않은 채 실패했다면 방금 만든 백업은 복구할 것이 없다.
+    await discardBackupIfUnused(cwd, backupName, headSha);
     vscode.window.showErrorMessage(t('amendFailed', formatGitError(err)));
   }
+}
+
+// 재작성이 실패했을 때, 저장소가 원래 상태 그대로면 방금 만든 백업 브랜치를 지운다.
+// 히스토리가 바뀌었거나 rebase 가 진행 중으로 남았다면 백업이 유일한 복구 수단이므로 남긴다.
+async function discardBackupIfUnused(cwd, backupName, originalHead) {
+  if (!backupName) return;
+  if (await hasInProgressOperation(cwd)) return;
+
+  try {
+    const { stdout } = await execGitSilent(['rev-parse', 'HEAD'], cwd);
+    if (stdout.trim() !== originalHead) return;   // 히스토리가 바뀜 → 백업을 남긴다
+  } catch {
+    return;   // 확인 불가 → 안전하게 백업을 남긴다
+  }
+  await deleteBackupBranches(cwd, [backupName]);
 }
 
 module.exports = {

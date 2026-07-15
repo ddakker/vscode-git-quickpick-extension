@@ -78,7 +78,7 @@ async function continueOperation() {
       : inProgress === 'cherry-pick' ? ['cherry-pick', '--continue']
       : ['commit', '--no-edit'];
     if (ch) ch.appendLine(`[continueOperation] running: git ${continueCmd.join(' ')}`);
-    await execGit(continueCmd, cwd, { env: { ...process.env, GIT_EDITOR: 'true' } });
+    await execGit(continueCmd, cwd, { env: { GIT_EDITOR: 'true' } });
     if (ch) ch.appendLine(`[continueOperation] completed successfully`);
     vscode.window.showInformationMessage(
       isKo ? '작업이 완료되었습니다.' : 'Operation completed.'
