@@ -171,6 +171,14 @@ describe('renderChanges', () => {
     const html = renderChanges(base(), WS_LABELS);
     assert.ok(html.includes('data-kind="fileViewToggle"'));
   });
+
+  test('체크 개수 배지 placeholder: 변경 있으면 빈 span, 없으면 미출력', () => {
+    // 배지 내용은 웹뷰 클라이언트 updateCheckedCount() 가 채운다
+    const some = renderChanges(base(), WS_LABELS);
+    assert.ok(some.includes('class="sec-checked"'));
+    const none = renderChanges(base({ changes: [] }), WS_LABELS);
+    assert.ok(!none.includes('class="sec-checked"'));
+  });
 });
 
 describe('renderStash', () => {

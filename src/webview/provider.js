@@ -56,6 +56,7 @@ function buildLabels() {
     // 변경/스태시 섹션
     sectionCommit: t('sectionCommit'), sectionStash: t('sectionStash'),
     selectAll: t('selectAll'), toggleFileView: t('toggleFileView'),
+    selectedCountHint: t('selectedCountHint'),
     copyBranchNameHint: t('copyBranchNameHint'),
     noChanges: t('noChanges'), noStash: t('noStash'),
     loadMore: t('loadMore'),

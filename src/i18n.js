@@ -443,6 +443,7 @@ const messages = {
   mStashApply:        ['복구 후 보존 (apply)', 'Apply (restore & keep)'],
   mStashDrop:         ['스태시 삭제', 'Drop Stash'],
   selectAll:          ['전체 선택/해제', 'Select All'],
+  selectedCountHint:  ['선택된 파일 수', 'Selected files'],
   noStash:            ['스태시가 없습니다.', 'No stashes.'],
   toggleFileView:     ['파일/트리 보기 전환', 'Toggle file/tree view'],
   inputPlaceholder:   ['커밋 메시지 (Ctrl+Enter로 커밋)', 'Commit message (Ctrl+Enter to commit)'],
