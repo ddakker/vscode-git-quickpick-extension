@@ -403,6 +403,20 @@ const messages = {
   commitTimeTitle:    ['커밋 시간 선택', 'Commit time'],
   commitTimeKeep:     ['원래 커밋 시간 유지', 'Keep original commit time'],
   commitTimeNow:      ['현재 시간 사용', 'Use current time'],
+  // ─── 커밋 안 된 변경 자동 stash 확인 ───────────────────
+  stashDirtyTitle:    [
+    '커밋하지 않은 변경이 있습니다. 잠시 보관하고 진행할까요?',
+    'You have uncommitted changes. Stash them temporarily and continue?'
+  ],
+  stashDirtyDetail:   [
+    '이 변경이 지금 작업(합치기/메시지 수정)에 섞이지 않도록 임시로 stash 했다가, ' +
+    '작업이 끝나면 자동으로 되돌립니다.\n\n' +
+    '취소하면 아무 작업도 하지 않습니다.',
+    'Your changes are stashed temporarily so they are not mixed into this operation ' +
+    '(squash / amend), then restored automatically when it finishes.\n\n' +
+    'If you cancel, nothing is done.'
+  ],
+  stashDirtyProceed:  ['보관 후 진행', 'Stash & continue'],
   // ─── .gitignore ────────────────────────────────────────
   gitignoreAdded:     ['{0} 항목을 .gitignore에 추가했습니다.', 'Added {0} to .gitignore.'],
   gitignoreAlready:   ['{0} 항목은 이미 .gitignore에 있습니다.', '{0} is already in .gitignore.'],

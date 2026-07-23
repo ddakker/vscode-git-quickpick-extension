@@ -75,6 +75,10 @@ describe('메뉴 계약 (master 트리 메뉴와 동일 구성)', () => {
     assert.deepEqual(cmds('branchHistoryCommit'),
       ['gitReflow.copyHash', 'gitReflow.copyMessage', 'gitReflow.execCherryPick']);
   });
+  test('localBranchCommit: 복사 / 체리픽 (재작성 계열은 현재 브랜치에서만 안전하므로 제외)', () => {
+    assert.deepEqual(cmds('localBranchCommit'),
+      ['gitReflow.copyHash', 'gitReflow.copyMessage', 'gitReflow.execCherryPick']);
+  });
   test('localBranch: 전환/pull/force-pull/rebase/merge/삭제/브랜치명 복사', () => {
     assert.deepEqual(cmds('localBranch'), [
       'gitReflow.execSwitch', 'gitReflow.execBranchPull', 'gitReflow.execForceBranchPull',

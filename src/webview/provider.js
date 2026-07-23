@@ -14,9 +14,12 @@ const vscode = require('vscode');
 const { getWorkspaceCwd } = require('../workspace');
 const { buildState } = require('./build-state');
 const { renderShell, renderLists } = require('../../lib/webview-html');
-const { fileOpenCommand } = require('../git/queries');
+const { fileOpenCommand, getCurrentBranch } = require('../git/queries');
 const { openWorkingFile } = require('../features/conflict');
 const { t, isKo } = require('../i18n');
+
+// 이 시간(ms)보다 오래 걸리는 갱신에만 스피너를 표시한다.
+const BUSY_ICON_DELAY_MS = 250;
 
 function nonceStr() {
   let s = '';
@@ -28,6 +31,11 @@ function nonceStr() {
 function readInputPosition() {
   const pos = vscode.workspace.getConfiguration('gitReflow').get('messageInputPosition', 'bottom');
   return ['top', 'bottom'].includes(pos) ? pos : 'bottom';
+}
+
+// 히스토리 섹션 표시 여부 (기본 숨김 — 현재 브랜치가 로컬 브랜치 맨 위에 동일 기능으로 표시됨)
+function readShowHistorySection() {
+  return vscode.workspace.getConfiguration('gitReflow').get('showHistorySection', false) === true;
 }
 
 function buildLabels() {
@@ -92,13 +100,18 @@ function buildMenu() {
     { command: 'gitReflow.execHardReset', label: t('mHardReset') },
   ];
   const amend = { command: 'gitReflow.execAmendMessage', label: t('mAmend') };
+  const cherryPick = { command: 'gitReflow.execCherryPick', label: t('mCherryPick') };
   return {
     // 히스토리 커밋: 복사 / amend / squash / soft·hard reset
     // (최신 커밋은 자기 자신을 대상으로 하는 squash·reset 이 의미가 없어 비활성)
     historyCommit: [...copy, amend, squash, ...reset],
     historyCommitLatest: [...copy, amend, { ...squash, disabled: true }, ...reset.map(r => ({ ...r, disabled: true }))],
-    // 브랜치 펼친 커밋: 복사 / 체리픽
-    branchHistoryCommit: [...copy, { command: 'gitReflow.execCherryPick', label: t('mCherryPick') }],
+    // 로컬 브랜치(현재 브랜치 제외) 펼친 커밋: 복사 / 체리픽만.
+    // reset·squash·amend 는 모두 현재 HEAD 기준으로 동작해 다른 브랜치 커밋에 실행하면
+    // 현재 브랜치를 조용히 재작성/삭제하므로 노출하지 않는다(히스토리 재작성은 현재 브랜치에서만).
+    localBranchCommit: [...copy, cherryPick],
+    // 원격 브랜치 펼친 커밋: 복사 / 체리픽
+    branchHistoryCommit: [...copy, cherryPick],
     // 로컬 브랜치: 전환/pull/force-pull/rebase/merge/삭제/브랜치명 복사
     localBranch: [
       { command: 'gitReflow.execSwitch', label: t('mSwitch') },
@@ -220,6 +233,9 @@ class HistoryViewProvider {
     // 동시 refresh 방지: 하나 실행 중이면 하나만 대기
     this._refreshRunning = false;
     this._refreshQueued = false;
+    // 새로고침 아이콘 → 스피너 전환 상태
+    this._busyTimer = null;
+    this._busyShown = false;
   }
 
   resolveWebviewView(webviewView) {
@@ -374,6 +390,7 @@ class HistoryViewProvider {
     }
     this._refreshRunning = true;
     this._refreshQueued = false;
+    this._setBusy(true);
     try {
       await this._doRefresh(options);
     } finally {
@@ -381,7 +398,31 @@ class HistoryViewProvider {
       if (this._refreshQueued) {
         this._refreshQueued = false;
         setTimeout(() => this.refresh(), 0);
+      } else {
+        this._setBusy(false);
       }
+    }
+  }
+
+  // 뷰 타이틀의 새로고침 아이콘을 갱신 중에는 스피너로 바꾼다(gitReflow.busy 컨텍스트).
+  // 짧은 갱신까지 표시하면 아이콘이 깜빡이기만 하므로, 일정 시간 이상 걸릴 때만 보여준다.
+  _setBusy(busy) {
+    if (busy) {
+      if (this._busyTimer || this._busyShown) return;
+      this._busyTimer = setTimeout(() => {
+        this._busyTimer = null;
+        this._busyShown = true;
+        vscode.commands.executeCommand('setContext', 'gitReflow.busy', true);
+      }, BUSY_ICON_DELAY_MS);
+      return;
+    }
+    if (this._busyTimer) {
+      clearTimeout(this._busyTimer);
+      this._busyTimer = null;
+    }
+    if (this._busyShown) {
+      this._busyShown = false;
+      vscode.commands.executeCommand('setContext', 'gitReflow.busy', false);
     }
   }
 
@@ -395,14 +436,23 @@ class HistoryViewProvider {
       return;
     }
     try {
+      // detached HEAD 는 현재 브랜치 행이 없어 히스토리가 어디에도 안 보이므로 섹션을 강제로 켠다.
+      // getCurrentBranch 결과는 캐시에 넣어 buildState 가 다시 조회하지 않고 재사용하게 한다.
+      if (this._cache.currentBranch === undefined) {
+        this._cache.currentBranch = await getCurrentBranch(cwd);
+      }
+      const detached = this._cache.currentBranch === 'HEAD' || this._cache.currentBranch === '';
+      const showHistory = readShowHistorySection() || detached;
       const expanded = {
         ...this._expanded,
+        history: showHistory && !!this._expanded.history, // 숨김이면 git log 조회도 생략
         __commits: [...this._expandedCommits],
         __stashFiles: [...this._expandedStashFiles],
         __historyPage: this._historyPage,
         __branchPages: { ...this._branchPages },
       };
       const state = await buildState(cwd, expanded, undefined, this._cache, options);
+      state.showHistorySection = showHistory;
       this._changes = state.changes || [];
       this._reconcileChecked(this._changes);
       state.checkedFiles = new Set(this.getCheckedFiles());

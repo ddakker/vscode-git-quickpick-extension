@@ -534,6 +534,10 @@ function activate(context) {
       if (e.affectsConfiguration('gitReflow.showInputWhenChecked')) {
         historyProvider.updateInputVisibility();
       }
+      // 히스토리 섹션 표시 여부 변경 → 리스트 다시 렌더
+      if (e.affectsConfiguration('gitReflow.showHistorySection')) {
+        historyProvider.refresh();
+      }
       // 히스토리 개수 변경 → 캐시 무효화 후 다시 조회
       if (e.affectsConfiguration('gitReflow.historyCount')) {
         historyProvider.reload();
@@ -659,6 +663,8 @@ function activate(context) {
     'gitReflow.refreshView': async () => {
       await fullRefresh(true);
     },
+    // 갱신 중에만 새로고침 아이콘 자리에 표시되는 스피너 — 눌러도 하는 일은 없다.
+    'gitReflow.refreshViewBusy': () => {},
     // 사이드바 인라인 액션 명령
     'gitReflow.execRebase': withRefresh((item) => execRebaseMerge(item, 'rebase')),
     'gitReflow.execMerge': withRefresh((item) => execRebaseMerge(item, 'merge')),

@@ -105,6 +105,38 @@ describe('renderLists', () => {
     const html = renderLists({ ...base, history: [] }, LABELS);
     assert.ok(html.includes('커밋 없음'));
   });
+  test('showHistorySection=false → 히스토리 섹션 미출력', () => {
+    const html = renderLists({ ...base, showHistorySection: false }, LABELS);
+    assert.ok(!html.includes('data-section="history"'));
+    assert.ok(html.includes('data-section="localBranch"')); // 다른 섹션은 유지
+  });
+});
+
+describe('브랜치 펼친 커밋 ctx (히스토리 기능 통일)', () => {
+  const branchState = (over = {}) => ({
+    inProgress: null, currentBranch: 'main', history: null,
+    localBranches: [
+      { name: 'main', description: '', isCurrent: true },
+      { name: 'feat', description: '', isCurrent: false },
+    ],
+    remoteBranches: [{ name: 'origin/x', description: '', unfetched: false }],
+    branchHistory: { main: [COMMIT, { ...COMMIT, hash: 'f00d' + COMMIT.hash }], feat: [COMMIT], 'origin/x': [COMMIT] },
+    commitFiles: {}, config: CONFIG,
+    expanded: { localBranch: true, remoteBranch: true }, ...over,
+  });
+  test('현재 브랜치 커밋 = 히스토리와 동일 ctx (첫 커밋은 Latest)', () => {
+    const html = renderLists(branchState({ expanded: { localBranch: true, main: true } }), LABELS);
+    assert.ok(html.includes('data-ctx="historyCommitLatest"'));
+    assert.ok(html.includes('data-ctx="historyCommit"'));
+  });
+  test('다른 로컬 브랜치 커밋 = localBranchCommit ctx', () => {
+    const html = renderLists(branchState({ expanded: { localBranch: true, feat: true } }), LABELS);
+    assert.ok(html.includes('data-ctx="localBranchCommit"'));
+  });
+  test('원격 브랜치 커밋 = branchHistoryCommit ctx 유지', () => {
+    const html = renderLists(branchState({ expanded: { remoteBranch: true, 'origin/x': true } }), LABELS);
+    assert.ok(html.includes('data-ctx="branchHistoryCommit"'));
+  });
 });
 
 // 변경/스태시 렌더용 라벨

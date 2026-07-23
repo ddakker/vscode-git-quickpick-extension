@@ -65,6 +65,12 @@
           ],
           "description": "%config.language%"
         },
+        "gitReflow.showHistorySection": {
+          "type": "boolean",
+          "default": false,
+          "order": 2,
+          "description": "%config.showHistorySection%"
+        },
         "gitReflow.messageInputPosition": {
           "type": "string",
           "default": "bottom",
@@ -182,6 +188,11 @@
         "command": "gitReflow.refreshView",
         "title": "%command.refresh%",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "gitReflow.refreshViewBusy",
+        "title": "%command.refreshing%",
+        "icon": "$(sync~spin)"
       },
       {
         "command": "gitReflow.execPush",
@@ -403,6 +414,12 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "gitReflow.refreshViewBusy",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "gitReflow.execPush",
@@ -426,7 +443,12 @@
         },
         {
           "command": "gitReflow.refreshView",
-          "when": "view == gitQuickPickHistory",
+          "when": "view == gitQuickPickHistory && !gitReflow.busy",
+          "group": "navigation@8"
+        },
+        {
+          "command": "gitReflow.refreshViewBusy",
+          "when": "view == gitQuickPickHistory && gitReflow.busy",
           "group": "navigation@8"
         },
         {

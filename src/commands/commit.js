@@ -64,6 +64,47 @@ async function execCommit(treeProvider, commitInputProvider) {
   }
 }
 
+// 커밋 안 된 변경(스테이징 포함, untracked 제외)이 있는지 확인.
+// untracked 파일은 squash/amend 커밋에 섞이지 않고 stash 로도 안 옮겨지므로 제외한다.
+async function hasUncommittedChanges(cwd) {
+  try {
+    const { stdout } = await execGitSilent(['diff', '--stat'], cwd);
+    const { stdout: staged } = await execGitSilent(['diff', '--cached', '--stat'], cwd);
+    return stdout.trim() !== '' || staged.trim() !== '';
+  } catch {
+    return false;
+  }
+}
+
+// 커밋 안 된 변경이 있으면 먼저 사용자에게 확인받는다(실제 stash 는 작업 직전에 한다).
+// 확인창을 맨 앞에 두어, 메시지 입력·시간 선택 전에 진행 여부부터 묻는다.
+// 반환: proceed=false 면 사용자가 취소한 것이므로 호출자는 아무것도 하지 말고 중단한다.
+async function confirmStashDirty(cwd) {
+  if (!await hasUncommittedChanges(cwd)) return { proceed: true };
+
+  const proceedLabel = t('stashDirtyProceed');
+  const answer = await vscode.window.showWarningMessage(
+    t('stashDirtyTitle'), { modal: true, detail: t('stashDirtyDetail') }, proceedLabel
+  );
+  return { proceed: answer === proceedLabel };
+}
+
+// 작업 직전에 커밋 안 된 변경을 임시로 stash 한다.
+// 확인 시점엔 깨끗했더라도 메시지 입력을 기다리는 동안 새로 생긴 변경이 재작성 커밋에
+// 섞이면 안 되므로, 앞 단계의 플래그가 아니라 '지금' 상태를 다시 확인해 판단한다.
+// 반환: stashed=true 면 작업 후 stash pop 으로 되돌려야 한다.
+async function stashDirtyIfNeeded(cwd) {
+  if (!await hasUncommittedChanges(cwd)) return false;
+  await execGit(['stash', 'push', '-m', 'auto-stash before rewrite'], cwd);
+  return true;
+}
+
+// 임시로 stash 한 변경을 되돌린다. pop 실패는 무시한다(사용자가 직접 복구).
+async function restoreStashIfNeeded(cwd, stashed) {
+  if (!stashed) return;
+  try { await execGit(['stash', 'pop'], cwd); } catch { /* ignore */ }
+}
+
 async function execSquashCommits(item, commitInputProvider) {
   const cwd = await validateGitWorkspace();
   if (!cwd) return;
@@ -80,6 +121,10 @@ async function execSquashCommits(item, commitInputProvider) {
     return;
   }
 
+  // 커밋 안 된 변경이 squash 커밋에 섞이지 않도록, 메시지 입력 전에 먼저 확인받는다.
+  const { proceed } = await confirmStashDirty(cwd);
+  if (!proceed) return;
+
   // 커밋 메시지 목록을 기본값으로 제공
   const messages = commits.map((line) => line.substring(line.indexOf(' ') + 1));
   const defaultMsg = messages.join('\n');
@@ -94,16 +139,8 @@ async function execSquashCommits(item, commitInputProvider) {
   const timeChoice = await pickCommitTime(t('squashPlaceholder'));
   if (!timeChoice) return;
 
-  // unstaged 변경사항이 있으면 자동 stash
-  let stashed = false;
-  try {
-    const { stdout } = await execGitSilent(['diff', '--stat'], cwd);
-    const { stdout: stagedOut } = await execGitSilent(['diff', '--cached', '--stat'], cwd);
-    if (stdout.trim() || stagedOut.trim()) {
-      await execGit(['stash', 'push', '-m', 'auto-stash before squash'], cwd);
-      stashed = true;
-    }
-  } catch { /* ignore */ }
+  // 확인받은 변경을 실제 작업 직전에 임시 stash
+  const stashed = await stashDirtyIfNeeded(cwd);
 
   try {
     // 원래 커밋의 author date 조회 (가장 오래된 커밋 기준)
@@ -129,9 +166,7 @@ async function execSquashCommits(item, commitInputProvider) {
   } catch (err) {
     vscode.window.showErrorMessage(t('squashFailed', formatGitError(err)));
   } finally {
-    if (stashed) {
-      try { await execGit(['stash', 'pop'], cwd); } catch { /* ignore */ }
-    }
+    await restoreStashIfNeeded(cwd, stashed);
   }
 }
 
@@ -328,6 +363,11 @@ async function execAmendMessage(item, commitInputProvider) {
     if (!await confirmReword(cwd, hash)) return;
   }
 
+  // 커밋 안 된 변경이 amend 커밋에 섞이지 않도록, 메시지 입력 전에 먼저 확인받는다.
+  // (특히 HEAD --amend 는 인덱스 내용을 그대로 커밋에 포함하므로 반드시 필요하다)
+  const { proceed } = await confirmStashDirty(cwd);
+  if (!proceed) return;
+
   // 현재 커밋 메시지 조회
   const { stdout: currentMsg } = await execGitSilent(
     ['log', '-1', '--format=%B', hash], cwd
@@ -343,6 +383,9 @@ async function execAmendMessage(item, commitInputProvider) {
   const timeChoice = await pickCommitTime(t('amendPlaceholder'));
   if (!timeChoice) return;
   const useNow = timeChoice.value === 'now';
+
+  // 확인받은 변경을 실제 작업 직전에 임시 stash
+  const stashed = await stashDirtyIfNeeded(cwd);
 
   let backupName = null;
   try {
@@ -360,6 +403,8 @@ async function execAmendMessage(item, commitInputProvider) {
     // pre-rebase 훅 거부처럼 아무것도 바뀌지 않은 채 실패했다면 방금 만든 백업은 복구할 것이 없다.
     await discardBackupIfUnused(cwd, backupName, headSha);
     vscode.window.showErrorMessage(t('amendFailed', formatGitError(err)));
+  } finally {
+    await restoreStashIfNeeded(cwd, stashed);
   }
 }
 
