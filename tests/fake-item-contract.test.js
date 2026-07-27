@@ -96,6 +96,9 @@ describe('메뉴 계약 (master 트리 메뉴와 동일 구성)', () => {
       'gitReflow.execDeleteRemoteBranch', 'gitReflow.copyBranchName',
     ]);
   });
+  test('remoteGroup: git 주소 복사', () => {
+    assert.deepEqual(cmds('remoteGroup'), ['gitReflow.copyRemoteUrl']);
+  });
   test('localBranchSection: 브랜치 생성', () => {
     assert.deepEqual(cmds('localBranchSection'), ['gitReflow.createBranch']);
   });

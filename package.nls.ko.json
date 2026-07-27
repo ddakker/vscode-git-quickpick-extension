@@ -62,6 +62,7 @@
   "command.jumpToSource": "소스로 이동",
   "command.openCommitFileVsLocal": "로컬과 비교하기",
   "command.copyBranchName": "브랜치명 복사",
+  "command.copyRemoteUrl": "git 주소 복사",
   "command.copyPath": "경로 복사",
   "command.copyRelativePath": "상대 경로 복사",
   "command.addToGitignore": ".gitignore에 추가",

@@ -6,7 +6,7 @@ const vscode = require('vscode');
 const { t, isKo } = require('../i18n');
 const { execGit } = require('../git/exec');
 const { validateGitWorkspace } = require('../workspace');
-const { getCurrentBranch, ensureRemoteBranchFetched, localBranchExists } = require('../git/queries');
+const { getCurrentBranch, ensureRemoteBranchFetched, localBranchExists, getRemoteUrl } = require('../git/queries');
 
 async function execDeleteBranch(item) {
   const cwd = await validateGitWorkspace();
@@ -245,6 +245,23 @@ async function copyBranchName(item) {
   vscode.window.showInformationMessage(t('branchNameCopied', name));
 }
 
+// 원격 브랜치의 git 주소(URL)를 클립보드에 복사. 'origin/foo' → 'origin' 의 URL.
+async function copyRemoteUrl(item) {
+  const cwd = await validateGitWorkspace();
+  if (!cwd) return;
+  const name = item && item.branchName;
+  if (!name) return;
+  const slash = name.indexOf('/');
+  const remote = slash < 0 ? name : name.substring(0, slash);
+  const url = await getRemoteUrl(cwd, remote);
+  if (!url) {
+    vscode.window.showWarningMessage(t('remoteUrlNotFound', remote));
+    return;
+  }
+  await vscode.env.clipboard.writeText(url);
+  vscode.window.showInformationMessage(t('remoteUrlCopied', url));
+}
+
 module.exports = {
-  execDeleteBranch, execDeleteRemoteBranch, createBranch, execSwitch, copyBranchName,
+  execDeleteBranch, execDeleteRemoteBranch, createBranch, execSwitch, copyBranchName, copyRemoteUrl,
 };

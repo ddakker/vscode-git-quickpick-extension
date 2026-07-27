@@ -136,6 +136,10 @@ function buildMenu() {
       { command: 'gitReflow.execDeleteRemoteBranch', label: t('mDeleteRemoteBranch') },
       { command: 'gitReflow.copyBranchName', label: t('mCopyBranchName') },
     ],
+    // 원격 그룹(origin 등) 헤더: git 주소 복사 (주소는 원격 단위 속성)
+    remoteGroup: [
+      { command: 'gitReflow.copyRemoteUrl', label: t('mCopyRemoteUrl') },
+    ],
     // 로컬 브랜치 섹션 헤더: 브랜치 생성 (master 의 localBranchSection 메뉴)
     localBranchSection: [
       { command: 'gitReflow.createBranch', label: t('mCreateBranch') },
@@ -269,6 +273,7 @@ class HistoryViewProvider {
       case 'toggleSection':
         if (msg.section === 'remoteBranch' && !this._expanded[msg.section]) {
           delete this._cache.remoteBranches;
+          delete this._cache.remoteUrls;
         }
         if (msg.section === 'localBranch' && !this._expanded[msg.section]) {
           delete this._cache.localBranches;
@@ -359,6 +364,9 @@ class HistoryViewProvider {
       if (command === 'gitReflow.execDeleteBranch' && arg.ctx === 'remoteBranch') {
         cmd = 'gitReflow.execDeleteRemoteBranch';
       }
+    } else if (arg && arg.kind === 'remoteGroup') {
+      // 원격 그룹 헤더: branch 에 원격 이름('origin')이 담겨 옴 → git 주소 복사에 사용
+      item = { branchName: arg.branch };
     } else if (arg && arg.kind === 'file') {
       // 커밋 파일 명령은 (hash, filePath, cwd) 위치 인자 / vsLocal 은 item 사용
       const cwd = getWorkspaceCwd();

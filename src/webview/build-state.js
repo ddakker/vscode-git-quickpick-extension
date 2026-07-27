@@ -20,6 +20,12 @@ const DEFAULT_FIELD_WIDTHS = { date: 160, author: 90, hash: 70 };
 const DEFAULT_INPUT_POSITION = 'bottom';
 const DEFAULT_HISTORY_COUNT = 10; // 한 페이지당 커밋 수 (더 불러오기 단위)
 
+// 원격 브랜치명('origin/main')에서 원격 이름('origin')만 추출.
+function remoteNameOf(branchName) {
+  const i = String(branchName).indexOf('/');
+  return i < 0 ? String(branchName) : String(branchName).substring(0, i);
+}
+
 // vscode 설정에서 커밋 표시 설정을 읽는다 (null/누락 시 기본값 폴백).
 function readCommitConfig() {
   const cfg = vscode.workspace.getConfiguration('gitReflow');
@@ -46,7 +52,7 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}, option
   const withFetch = !!options.withFetch;
   const {
     getCurrentBranch, hasInProgressOperation, getLocalBranches,
-    getRemoteBranches, getCommitLog, fetchRemoteBranch, ensureRemoteBranchFetched, getCommitFiles,
+    getRemoteBranches, getRemoteUrls, getCommitLog, fetchRemoteBranch, ensureRemoteBranchFetched, getCommitFiles,
     getChangedFiles, getStashList, getStashFiles,
   } = deps;
 
@@ -104,10 +110,13 @@ async function buildState(cwd, expanded = {}, deps = queries, cache = {}, option
   // 원격 브랜치 — ls-remote(네트워크) 포함이므로 펼쳤을 때만 (lazy + 캐시)
   if (expanded.remoteBranch) {
     if (!cache.remoteBranches) cache.remoteBranches = await getRemoteBranches(cwd);
+    // 원격 이름 → git 주소 맵 (로컬 config 조회라 가볍지만 캐시로 재사용)
+    if (!cache.remoteUrls) cache.remoteUrls = getRemoteUrls ? await getRemoteUrls(cwd) : {};
     state.remoteBranches = cache.remoteBranches.map(b => ({
       name: b.name,
       description: b.description,
       unfetched: !!b.unfetched,
+      url: cache.remoteUrls[remoteNameOf(b.name)] || '',
     }));
   }
 

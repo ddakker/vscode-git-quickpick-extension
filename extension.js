@@ -27,7 +27,7 @@ const {
 
 const { execPush, execPull, execForcePull, execBranchPull, execForceBranchPull } = require('./src/commands/push-pull');
 const { execCommit, execSquashCommits, execAmendMessage } = require('./src/commands/commit');
-const { execDeleteBranch, execDeleteRemoteBranch, createBranch, execSwitch, copyBranchName } = require('./src/commands/branch');
+const { execDeleteBranch, execDeleteRemoteBranch, createBranch, execSwitch, copyBranchName, copyRemoteUrl } = require('./src/commands/branch');
 const { execStageFile, execForceAdd, execRollbackFile, execDeleteFile, execAddToGitignore } = require('./src/commands/file');
 const { execCreateStash, execStashRestore, execStashDrop } = require('./src/commands/stash');
 const { execRebaseMerge } = require('./src/commands/rebase-merge');
@@ -724,6 +724,7 @@ function activate(context) {
     'gitReflow.execForceBranchPull': withRefresh((item) => execForceBranchPull(item)),
     'gitReflow.execDeleteBranch': withRefresh((item) => execDeleteBranch(item)),
     'gitReflow.copyBranchName': (item) => copyBranchName(item),
+    'gitReflow.copyRemoteUrl': (item) => copyRemoteUrl(item),
     'gitReflow.cleanupBackups': withRefresh(() => execCleanupBackups()),
     'gitReflow.createStash': withRefresh(() => execCreateStash()),
     'gitReflow.stashPop': withRefresh((item) => execStashRestore(item, false)),

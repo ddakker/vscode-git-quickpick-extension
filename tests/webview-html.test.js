@@ -137,6 +137,19 @@ describe('브랜치 펼친 커밋 ctx (히스토리 기능 통일)', () => {
     const html = renderLists(branchState({ expanded: { remoteBranch: true, 'origin/x': true } }), LABELS);
     assert.ok(html.includes('data-ctx="branchHistoryCommit"'));
   });
+  test('원격 브랜치는 원격 그룹 헤더 아래 짧은 이름으로 표시 + 그룹에 git 주소', () => {
+    const url = 'git@github.com:ddakker/repo.git';
+    const html = renderLists(branchState({
+      remoteBranches: [{ name: 'origin/x', description: '', unfetched: false, url }],
+    }), LABELS);
+    // 원격 그룹 헤더(우클릭 ctx=remoteGroup) + git 주소 툴팁/표시
+    assert.ok(html.includes('data-ctx="remoteGroup"'));
+    assert.ok(html.includes('data-branch="origin"'));
+    assert.ok(html.includes(`title="${url}"`));
+    // 브랜치 행은 접두어를 뗀 짧은 이름(x)으로 표시하되 data-branch 는 전체 이름 유지
+    assert.ok(html.includes('data-branch="origin/x"'));
+    assert.ok(html.includes('<span class="bname">x</span>'));
+  });
 });
 
 // 변경/스태시 렌더용 라벨

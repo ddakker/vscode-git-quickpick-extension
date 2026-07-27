@@ -83,6 +83,25 @@ async function getRemoteNames(cwd) {
   }
 }
 
+// 원격 이름 → git 주소(URL) 조회 (로컬 config 조회라 네트워크 불필요)
+async function getRemoteUrl(cwd, remote) {
+  try {
+    const { stdout } = await execGitSilent(['remote', 'get-url', remote], cwd);
+    return stdout.trim();
+  } catch {
+    return '';
+  }
+}
+
+// 모든 원격의 URL 을 { 원격이름: 주소 } 맵으로 반환
+async function getRemoteUrls(cwd) {
+  const remotes = await getRemoteNames(cwd);
+  const urls = await Promise.all(remotes.map(r => getRemoteUrl(cwd, r)));
+  const map = {};
+  remotes.forEach((r, i) => { if (urls[i]) map[r] = urls[i]; });
+  return map;
+}
+
 // ls-remote 로 원격의 브랜치 이름만 빠르게 조회 (객체 전송 없음)
 async function lsRemoteHeads(cwd, remote) {
   try {
@@ -305,6 +324,7 @@ async function getCommitFiles(cwd, hash) {
 
 module.exports = {
   isGitRepo, getCurrentBranch, getLocalBranches, getRemoteNames, lsRemoteHeads,
+  getRemoteUrl, getRemoteUrls,
   getRemoteBranches, fetchAll, fetchRemoteBranch, getStashList, getStashFiles, ensureRemoteBranchFetched,
   localBranchExists, isDetachedHead, hasInProgressOperation, getChangedFiles,
   fileStatusLetter, fileOpenCommand, getCommitLog, getCommitFiles,

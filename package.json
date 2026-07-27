@@ -315,6 +315,11 @@
         "icon": "$(clippy)"
       },
       {
+        "command": "gitReflow.copyRemoteUrl",
+        "title": "%command.copyRemoteUrl%",
+        "icon": "$(clippy)"
+      },
+      {
         "command": "gitReflow.execDeleteBranch",
         "title": "%command.execDeleteBranch%",
         "icon": "$(trash)"
