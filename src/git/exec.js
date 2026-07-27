@@ -188,9 +188,19 @@ async function execGit(args, cwd, options = {}) {
   }
 }
 
+// 진행 알림을 띄우고 git 실행 — 오래 걸릴 수 있는 명령용.
+// 피드백이 없으면 사용자가 "안 눌렸나" 하고 다시 누르게 된다.
+function execGitWithProgress(args, cwd, options = {}) {
+  return vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: t('executing', `git ${args.join(' ')}`) },
+    () => execGit(args, cwd, options)
+  );
+}
+
 module.exports = {
   execFileAsync,
   ensureCustomAskpass,
   execGit,
   execGitSilent,
+  execGitWithProgress,
 };

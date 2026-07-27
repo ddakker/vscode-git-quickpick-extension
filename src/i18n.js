@@ -34,6 +34,10 @@ const messages = {
   fetchingBranch:   ['{0} 브랜치 가져오는 중...', 'Fetching branch {0}...'],
   notFetched:       ['(미페치)', '(not fetched)'],
   executing:        ['실행 중: {0}', 'Executing: {0}'],
+  commandBusy:      [
+    '이전 명령이 아직 실행 중입니다. 끝난 뒤 다시 시도하세요.',
+    'A previous command is still running. Try again once it finishes.'
+  ],
   success:          ['완료: {0}', 'Done: {0}'],
   successWithCount: ['{0} 완료 ({1}개 커밋)', 'Done: {0} ({1} commits)'],
   failed:           ['실패: {0}', 'Failed: {0}'],

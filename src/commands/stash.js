@@ -4,7 +4,7 @@
 
 const vscode = require('vscode');
 const { t } = require('../i18n');
-const { execGit } = require('../git/exec');
+const { execGitWithProgress } = require('../git/exec');
 const { validateGitWorkspace } = require('../workspace');
 const { getChangedFiles } = require('../git/queries');
 const { isConflict } = require('../../lib/git-helpers');
@@ -29,7 +29,8 @@ async function execCreateStash() {
   if (message.trim()) args.push('-m', message.trim());
 
   try {
-    await execGit(args, cwd);
+    // 대용량 untracked 파일이 있으면 stash push 가 수 분 걸린다 — 진행 알림 필수.
+    await execGitWithProgress(args, cwd);
     vscode.window.showInformationMessage(t('stashCreated'));
   } catch (err) {
     vscode.window.showErrorMessage(t('failed', (err.stderr || err.message || String(err)).trim()));
@@ -42,7 +43,7 @@ async function execStashRestore(item, keep) {
 
   const sub = keep ? 'apply' : 'pop';
   try {
-    await execGit(['stash', sub, item.stashRef], cwd);
+    await execGitWithProgress(['stash', sub, item.stashRef], cwd);
     vscode.window.showInformationMessage(keep ? t('stashApplied') : t('stashPopped'));
   } catch (err) {
     const msg = (err.stderr || err.message || String(err)).trim();
@@ -67,7 +68,7 @@ async function execStashDrop(item) {
   if (confirm !== t('delete')) return;
 
   try {
-    await execGit(['stash', 'drop', item.stashRef], cwd);
+    await execGitWithProgress(['stash', 'drop', item.stashRef], cwd);
     vscode.window.showInformationMessage(t('stashDropped'));
   } catch (err) {
     vscode.window.showErrorMessage(t('failed', (err.stderr || err.message || String(err)).trim()));

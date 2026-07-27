@@ -622,11 +622,23 @@ function activate(context) {
   }
   runtime.setFullRefreshFn(fullRefresh);
 
-  // 명령 실행 후 전체 트리 갱신 래퍼
+  // 명령 실행 후 전체 트리 갱신 래퍼.
+  // 실행 중에는 다른 명령을 막는다 — 오래 걸리는 명령(대용량 stash 등)에서
+  // 사용자가 반응이 없다고 여러 번 누르면 git 작업이 중복 실행되기 때문.
+  let commandRunning = false;
   function withRefresh(fn) {
     return async (...args) => {
-      await fn(...args);
-      await fullRefresh();
+      if (commandRunning) {
+        vscode.window.showWarningMessage(t('commandBusy'));
+        return;
+      }
+      commandRunning = true;
+      try {
+        await fn(...args);
+        await fullRefresh();
+      } finally {
+        commandRunning = false;
+      }
     };
   }
 
